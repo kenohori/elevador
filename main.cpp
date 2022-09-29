@@ -79,16 +79,9 @@ void printMemoryUsage() {
   } std::cout << usage << std::endl;
 }
 
-int main(int argc, const char * argv[]) {
-  
-  const char *input_map = "/Users/ken/Downloads/3dfier_os/osmm/osmm.gpkg";
-//  const char *input_point_cloud = "/Users/ken/Downloads/3dfier_os/osmm/Exeter_VOLTAtest.laz";
-  const char *output_3dcm = "/Users/ken/Downloads/exeter.obj";
-  
-  std::vector<Polygon> map_polygons;
-  
+int load_map(const char *input_map, std::vector<Polygon> &map_polygons) {
   // Prepare input map
-  clock_t startTime = clock();
+  clock_t start_time = clock();
   GDALAllRegister();
   GDALDataset *input_map_dataset = (GDALDataset*) GDALOpenEx(input_map, GDAL_OF_READONLY, NULL, NULL, NULL);
   if (input_map_dataset == NULL) {
@@ -148,10 +141,13 @@ int main(int argc, const char * argv[]) {
     
   } GDALClose(input_map_dataset);
   std::cout << "Loaded " << map_polygons.size() << " polygons in ";
-  printTimer(startTime);
+  printTimer(start_time);
   std::cout << " using ";
   printMemoryUsage();
-  
+  return 0;
+}
+
+int triangulate_polygons(std::vector<Polygon> &map_polygons) {
   // Basic polygon repair (pre-requisite for triangulation)
   auto current_polygon = map_polygons.begin();
   while (current_polygon != map_polygons.end()) {
@@ -188,7 +184,7 @@ int main(int argc, const char * argv[]) {
   }
   
   // Triangulate polygons
-  startTime = clock();
+  clock_t start_time = clock();
   for (auto &polygon: map_polygons) {
     
     // Triangle (optimisation)
@@ -263,28 +259,36 @@ int main(int argc, const char * argv[]) {
     }
       
   } std::cout << "Triangulated polygons in ";
-  printTimer(startTime);
+  printTimer(start_time);
   std::cout << " using ";
   printMemoryUsage();
-  
+  return 0;
+}
+
+int load_point_cloud(const char *input_point_cloud) {
   // Load point cloud
-//  pdal::Options input_opts;
-//  input_opts.add("filename", input_point_cloud);
-//  pdal::PointTable input_table;
-//  pdal::LasReader las_reader;
-//  las_reader.setOptions(input_opts);
-//  las_reader.prepare(input_table);
-//  pdal::PointViewSet point_view_set = las_reader.execute(input_table);
-//  pdal::PointViewPtr point_view = *point_view_set.begin();
-//  pdal::Dimension::IdList dims = point_view->dims();
-//  pdal::LasHeader las_header = las_reader.header();
-  
-  std::set<std::string> cityjson_classes;
-  for (auto const &polygon: map_polygons) cityjson_classes.insert(polygon.cityjson_class);
-  for (auto const &cityjson_class: cityjson_classes) std::cout << cityjson_class << std::endl;
-  
+  clock_t start_time = clock();
+  std::cout << "Input point cloud: " << input_point_cloud << std::endl;
+  pdal::Options input_opts;
+  input_opts.add("filename", input_point_cloud);
+  pdal::PointTable input_table;
+  pdal::LasReader las_reader;
+  las_reader.setOptions(input_opts);
+  las_reader.prepare(input_table);
+  pdal::PointViewSet point_view_set = las_reader.execute(input_table);
+  pdal::PointViewPtr point_view = *point_view_set.begin();
+  pdal::Dimension::IdList dims = point_view->dims();
+  pdal::LasHeader las_header = las_reader.header();
+  std::cout << "Loaded " << las_header.pointCount() << " points in ";
+  printTimer(start_time);
+  std::cout << " using ";
+  printMemoryUsage();
+  return 0;
+}
+
+int write_obj(const char *output_3dcm, std::vector<Polygon> &map_polygons) {
   // Write OBJ
-  startTime = clock();
+  clock_t start_time = clock();
   std::ofstream output_stream;
   output_stream.open(output_3dcm);
   output_stream << "mtllib ./elevador.mtl" << std::endl;
@@ -304,9 +308,24 @@ int main(int argc, const char * argv[]) {
   } output_stream << output_objects;
   output_stream.close();
   std::cout << "Wrote 3D city model in ";
-  printTimer(startTime);
+  printTimer(start_time);
   std::cout << " using ";
   printMemoryUsage();
+  return 0;
+}
+
+int main(int argc, const char * argv[]) {
+  
+  const char *input_map = "/Users/ken/Downloads/3dfier_os/osmm/osmm.gpkg";
+  const char *input_point_cloud = "/Users/ken/Downloads/3dfier_os/osmm/Exeter_VOLTAtest.laz";
+  const char *output_3dcm = "/Users/ken/Downloads/exeter.obj";
+  
+  std::vector<Polygon> map_polygons;
+  
+  load_map(input_map, map_polygons);
+  triangulate_polygons(map_polygons);
+  load_point_cloud(input_point_cloud);
+  write_obj(output_3dcm, map_polygons);
   
   return 0;
 }
