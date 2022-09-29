@@ -1,4 +1,5 @@
 #include <iostream>
+#include <fstream>
 #include <mach/mach.h>
 
 #include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
@@ -50,6 +51,7 @@ struct Polygon {
   Ring outer_ring;
   std::vector<Ring> inner_rings;
   Triangulation triangulation;
+  std::string cityjson_class;
 };
 
 void printTimer(clock_t &start_time) {
@@ -81,7 +83,7 @@ int main(int argc, const char * argv[]) {
   
   const char *input_map = "/Users/ken/Downloads/3dfier_os/osmm/osmm.gpkg";
 //  const char *input_point_cloud = "/Users/ken/Downloads/3dfier_os/osmm/Exeter_VOLTAtest.laz";
-//  const char *output_3dcm = "/Users/ken/Downloads/exeter.obj";
+  const char *output_3dcm = "/Users/ken/Downloads/exeter.obj";
   
   std::vector<Polygon> map_polygons;
   
@@ -102,10 +104,12 @@ int main(int argc, const char * argv[]) {
     while ((input_feature = input_layer->GetNextFeature()) != NULL) {
       if (!input_feature->GetGeometryRef()) continue;
       
+      std::string cityjson_class = input_feature->GetFieldAsString("citygmlclass");
       if (wkbFlatten(input_feature->GetGeometryRef()->getGeometryType()) == wkbPolygon ||
           wkbFlatten(input_feature->GetGeometryRef()->getGeometryType()) == wkbTriangle) {
         OGRPolygon *input_polygon = input_feature->GetGeometryRef()->toPolygon();
         map_polygons.emplace_back();
+        map_polygons.back().cityjson_class = cityjson_class;
         for (int current_vertex = 0; current_vertex < input_polygon->getExteriorRing()->getNumPoints(); ++current_vertex) {
           map_polygons.back().outer_ring.points.emplace_back(input_polygon->getExteriorRing()->getX(current_vertex),
                                                              input_polygon->getExteriorRing()->getY(current_vertex));
@@ -123,6 +127,7 @@ int main(int argc, const char * argv[]) {
         for (int current_polygon = 0; current_polygon < input_multipolygon->getNumGeometries(); ++current_polygon) {
           OGRPolygon *input_polygon = input_multipolygon->getGeometryRef(current_polygon);
           map_polygons.emplace_back();
+          map_polygons.back().cityjson_class = cityjson_class;
           for (int current_vertex = 0; current_vertex < input_polygon->getExteriorRing()->getNumPoints(); ++current_vertex) {
             map_polygons.back().outer_ring.points.emplace_back(input_polygon->getExteriorRing()->getX(current_vertex),
                                                                input_polygon->getExteriorRing()->getY(current_vertex));
@@ -274,8 +279,34 @@ int main(int argc, const char * argv[]) {
 //  pdal::Dimension::IdList dims = point_view->dims();
 //  pdal::LasHeader las_header = las_reader.header();
   
-  // Write OBJ
+  std::set<std::string> cityjson_classes;
+  for (auto const &polygon: map_polygons) cityjson_classes.insert(polygon.cityjson_class);
+  for (auto const &cityjson_class: cityjson_classes) std::cout << cityjson_class << std::endl;
   
+  // Write OBJ
+  startTime = clock();
+  std::ofstream output_stream;
+  output_stream.open(output_3dcm);
+  output_stream << "mtllib ./elevador.mtl" << std::endl;
+  std::string output_objects;
+  std::size_t num_faces = 0;
+  for (std::size_t current_polygon = 0; current_polygon < map_polygons.size(); ++current_polygon) {
+    output_objects += "o " + std::to_string(current_polygon) + "\n";
+    output_objects += "usemtl " + map_polygons[current_polygon].cityjson_class + "\n";
+    for (Triangulation::Finite_faces_iterator current_face = map_polygons[current_polygon].triangulation.finite_faces_begin();
+         current_face != map_polygons[current_polygon].triangulation.finite_faces_end();
+         ++current_face) {
+      if (current_face->info().interior == false) continue;
+      for (int v = 0; v < 3; ++v) output_stream << "v " << current_face->vertex(v)->point().x() << " " << current_face->vertex(v)->point().y() << " 0.0\n";
+      output_objects += "f " + std::to_string(3*num_faces+1) + " " + std::to_string(3*num_faces+2) + " " + std::to_string(3*num_faces+3) + "\n";
+      ++num_faces;
+    }
+  } output_stream << output_objects;
+  output_stream.close();
+  std::cout << "Wrote 3D city model in ";
+  printTimer(startTime);
+  std::cout << " using ";
+  printMemoryUsage();
   
   return 0;
 }
