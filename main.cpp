@@ -21,6 +21,9 @@ typedef CGAL::Exact_predicates_tag Tag;
 
 struct VertexInfo {
   Kernel::FT z;
+  VertexInfo() {
+    z = 0.0;
+  }
 };
 
 struct FaceInfo {
@@ -40,7 +43,7 @@ typedef CGAL::Constrained_Delaunay_triangulation_2<Kernel, TriangulationDataStru
 typedef Enhanced_constrained_triangulation_2<ConstrainedDelaunayTriangulation> Triangulation;
 
 struct Ring {
-  std::vector<Kernel::Point_2> vertices;
+  std::vector<Kernel::Point_2> points;
 };
 
 struct Polygon {
@@ -104,13 +107,13 @@ int main(int argc, const char * argv[]) {
         OGRPolygon *input_polygon = input_feature->GetGeometryRef()->toPolygon();
         map_polygons.emplace_back();
         for (int current_vertex = 0; current_vertex < input_polygon->getExteriorRing()->getNumPoints(); ++current_vertex) {
-          map_polygons.back().outer_ring.vertices.emplace_back(input_polygon->getExteriorRing()->getX(current_vertex),
-                                                               input_polygon->getExteriorRing()->getY(current_vertex));
+          map_polygons.back().outer_ring.points.emplace_back(input_polygon->getExteriorRing()->getX(current_vertex),
+                                                             input_polygon->getExteriorRing()->getY(current_vertex));
         } for (int current_inner_ring = 0; current_inner_ring < input_polygon->getNumInteriorRings(); ++current_inner_ring) {
           map_polygons.back().inner_rings.emplace_back();
           for (int current_vertex = 0; current_vertex < input_polygon->getInteriorRing(current_inner_ring)->getNumPoints(); ++current_vertex) {
-            map_polygons.back().inner_rings.back().vertices.emplace_back(input_polygon->getInteriorRing(current_inner_ring)->getX(current_vertex),
-                                                                         input_polygon->getInteriorRing(current_inner_ring)->getY(current_vertex));
+            map_polygons.back().inner_rings.back().points.emplace_back(input_polygon->getInteriorRing(current_inner_ring)->getX(current_vertex),
+                                                                       input_polygon->getInteriorRing(current_inner_ring)->getY(current_vertex));
           }
         }
       }
@@ -121,13 +124,13 @@ int main(int argc, const char * argv[]) {
           OGRPolygon *input_polygon = input_multipolygon->getGeometryRef(current_polygon);
           map_polygons.emplace_back();
           for (int current_vertex = 0; current_vertex < input_polygon->getExteriorRing()->getNumPoints(); ++current_vertex) {
-            map_polygons.back().outer_ring.vertices.emplace_back(input_polygon->getExteriorRing()->getX(current_vertex),
-                                                                 input_polygon->getExteriorRing()->getY(current_vertex));
+            map_polygons.back().outer_ring.points.emplace_back(input_polygon->getExteriorRing()->getX(current_vertex),
+                                                               input_polygon->getExteriorRing()->getY(current_vertex));
           } for (int current_inner_ring = 0; current_inner_ring < input_polygon->getNumInteriorRings(); ++current_inner_ring) {
             map_polygons.back().inner_rings.emplace_back();
             for (int current_vertex = 0; current_vertex < input_polygon->getInteriorRing(current_inner_ring)->getNumPoints(); ++current_vertex) {
-              map_polygons.back().inner_rings.back().vertices.emplace_back(input_polygon->getInteriorRing(current_inner_ring)->getX(current_vertex),
-                                                                           input_polygon->getInteriorRing(current_inner_ring)->getY(current_vertex));
+              map_polygons.back().inner_rings.back().points.emplace_back(input_polygon->getInteriorRing(current_inner_ring)->getX(current_vertex),
+                                                                         input_polygon->getInteriorRing(current_inner_ring)->getY(current_vertex));
             }
           }
         }
@@ -148,18 +151,18 @@ int main(int argc, const char * argv[]) {
   auto current_polygon = map_polygons.begin();
   while (current_polygon != map_polygons.end()) {
     // Close polygons and rings
-    if (current_polygon->outer_ring.vertices.back() != current_polygon->outer_ring.vertices.front()) {
+    if (current_polygon->outer_ring.points.back() != current_polygon->outer_ring.points.front()) {
       std::cout << "Warning: Last point != first. Adding it again at the end..." << std::endl;
-      current_polygon->outer_ring.vertices.push_back(current_polygon->outer_ring.vertices.front());
+      current_polygon->outer_ring.points.push_back(current_polygon->outer_ring.points.front());
     } for (auto &ring: current_polygon->inner_rings) {
-      if (ring.vertices.back() != ring.vertices.front()) {
+      if (ring.points.back() != ring.points.front()) {
         std::cout << "Warning: Last point != first. Adding it again at the end..." << std::endl;
-        ring.vertices.push_back(ring.vertices.front());
+        ring.points.push_back(ring.points.front());
       }
     }
     
     // Delete degenerate polygons and rings
-    if (current_polygon->outer_ring.vertices.size() < 4) {
+    if (current_polygon->outer_ring.points.size() < 4) {
       std::cout << "Deleting polygon with < 3 vertices..." << std::endl;
       auto polygon_to_erase = current_polygon;
       ++current_polygon;
@@ -167,7 +170,7 @@ int main(int argc, const char * argv[]) {
       continue;
     } auto current_ring = current_polygon->inner_rings.begin();
     while (current_ring != current_polygon->inner_rings.end()) {
-      if (current_ring->vertices.size() < 4) {
+      if (current_ring->points.size() < 4) {
         std::cout << "Deleting ring with < 3 vertices..." << std::endl;
         auto ring_to_erase = current_ring;
         ++current_ring;
@@ -184,13 +187,13 @@ int main(int argc, const char * argv[]) {
   for (auto &polygon: map_polygons) {
     
     // Triangle (optimisation)
-    if (polygon.outer_ring.vertices.size() == 4 && polygon.inner_rings.size() == 0) {
-      if (polygon.outer_ring.vertices[0] != polygon.outer_ring.vertices[1] &&
-          polygon.outer_ring.vertices[1] != polygon.outer_ring.vertices[2] &&
-          polygon.outer_ring.vertices[2] != polygon.outer_ring.vertices[0]) {
-        polygon.triangulation.insert(polygon.outer_ring.vertices[0]);
-        polygon.triangulation.insert(polygon.outer_ring.vertices[1]);
-        polygon.triangulation.insert(polygon.outer_ring.vertices[2]);
+    if (polygon.outer_ring.points.size() == 4 && polygon.inner_rings.size() == 0) {
+      if (polygon.outer_ring.points[0] != polygon.outer_ring.points[1] &&
+          polygon.outer_ring.points[1] != polygon.outer_ring.points[2] &&
+          polygon.outer_ring.points[2] != polygon.outer_ring.points[0]) {
+        polygon.triangulation.insert(polygon.outer_ring.points[0]);
+        polygon.triangulation.insert(polygon.outer_ring.points[1]);
+        polygon.triangulation.insert(polygon.outer_ring.points[2]);
         for (Triangulation::Finite_faces_iterator current_face = polygon.triangulation.finite_faces_begin();
              current_face != polygon.triangulation.finite_faces_end();
              ++current_face) current_face->info().interior = true;
@@ -200,7 +203,60 @@ int main(int argc, const char * argv[]) {
     }
     
     // Polygons
-    
+    else {
+      
+      // Triangulate the edges of the polygon
+      std::vector<Kernel::Point_2>::const_iterator current_point = polygon.outer_ring.points.begin();
+      Triangulation::Vertex_handle current_vertex = polygon.triangulation.insert(*current_point);
+      ++current_point;
+      Triangulation::Vertex_handle previous_vertex;
+      while (current_point != polygon.outer_ring.points.end()) {
+        previous_vertex = current_vertex;
+        current_vertex = polygon.triangulation.insert(*current_point);
+        if (previous_vertex != current_vertex) polygon.triangulation.odd_even_insert_constraint(previous_vertex, current_vertex);
+        ++current_point;
+      } for (auto const &ring: polygon.inner_rings) {
+        current_point = ring.points.begin();
+        current_vertex = polygon.triangulation.insert(*current_point);
+        while (current_point != ring.points.end()) {
+          previous_vertex = current_vertex;
+          current_vertex = polygon.triangulation.insert(*current_point);
+          if (previous_vertex != current_vertex) polygon.triangulation.odd_even_insert_constraint(previous_vertex, current_vertex);
+          ++current_point;
+        }
+      }
+      
+      // Label the triangles to find out interior/exterior
+      if (polygon.triangulation.number_of_faces() == 0) {
+        std::cout << "Degenerate face produced no triangles. Skipping..." << std::endl;
+        continue;
+      } std::list<Triangulation::Face_handle> to_check;
+      polygon.triangulation.infinite_face()->info().processed = true;
+      CGAL_assertion(polygon.triangulation.infinite_face()->info().processed == true);
+      CGAL_assertion(polygon.triangulation.infinite_face()->info().interior == false);
+      to_check.push_back(polygon.triangulation.infinite_face());
+      while (!to_check.empty()) {
+        CGAL_assertion(to_check.front()->info().processed == true);
+        for (int neighbour = 0; neighbour < 3; ++neighbour) {
+          if (to_check.front()->neighbor(neighbour)->info().processed == true) {
+            // Note: validation code.
+//            if (triangulation.is_constrained(Triangulation::Edge(toCheck.front(), neighbour))) CGAL_assertion(toCheck.front()->neighbor(neighbour)->info().interior != toCheck.front()->info().interior);
+//            else CGAL_assertion(toCheck.front()->neighbor(neighbour)->info().interior == toCheck.front()->info().interior);
+          } else {
+            to_check.front()->neighbor(neighbour)->info().processed = true;
+            CGAL_assertion(to_check.front()->neighbor(neighbour)->info().processed == true);
+            if (polygon.triangulation.is_constrained(Triangulation::Edge(to_check.front(), neighbour))) {
+              to_check.front()->neighbor(neighbour)->info().interior = !to_check.front()->info().interior;
+              to_check.push_back(to_check.front()->neighbor(neighbour));
+            } else {
+              to_check.front()->neighbor(neighbour)->info().interior = to_check.front()->info().interior;
+              to_check.push_back(to_check.front()->neighbor(neighbour));
+            }
+          }
+        } to_check.pop_front();
+      }
+    }
+      
   } std::cout << "Triangulated polygons in ";
   printTimer(startTime);
   std::cout << " using ";
@@ -217,6 +273,9 @@ int main(int argc, const char * argv[]) {
 //  pdal::PointViewPtr point_view = *point_view_set.begin();
 //  pdal::Dimension::IdList dims = point_view->dims();
 //  pdal::LasHeader las_header = las_reader.header();
+  
+  // Write OBJ
+  
   
   return 0;
 }
