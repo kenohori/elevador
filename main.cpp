@@ -8,6 +8,7 @@
 #include <CGAL/Triangulation_face_base_with_info_2.h>
 #include "Enhanced_constrained_triangulation_2.h"
 #include <CGAL/Point_set_3.h>
+#include <CGAL/Octree.h>
 
 #include <ogrsf_frmts.h>
 
@@ -20,18 +21,21 @@
 
 typedef CGAL::Exact_predicates_inexact_constructions_kernel Kernel;
 typedef CGAL::Exact_predicates_tag Tag;
-struct VertexInfo;
-typedef CGAL::Triangulation_vertex_base_with_info_2<VertexInfo, Kernel> VertexBase;
-typedef CGAL::Constrained_triangulation_face_base_2<Kernel> FaceBase;
+struct Vertex_info;
+typedef CGAL::Triangulation_vertex_base_with_info_2<Vertex_info, Kernel> Vertex_base;
+typedef CGAL::Constrained_triangulation_face_base_2<Kernel> Face_base;
 struct FaceInfo;
-typedef CGAL::Triangulation_face_base_with_info_2<FaceInfo, Kernel, FaceBase> FaceBaseWithInfo;
-typedef CGAL::Triangulation_data_structure_2<VertexBase, FaceBaseWithInfo> TriangulationDataStructure;
-typedef CGAL::Constrained_Delaunay_triangulation_2<Kernel, TriangulationDataStructure, Tag> ConstrainedDelaunayTriangulation;
-typedef Enhanced_constrained_triangulation_2<ConstrainedDelaunayTriangulation> Triangulation;
+typedef CGAL::Triangulation_face_base_with_info_2<FaceInfo, Kernel, Face_base> Face_base_with_info;
+typedef CGAL::Triangulation_data_structure_2<Vertex_base, Face_base_with_info> Triangulation_data_structure;
+typedef CGAL::Constrained_Delaunay_triangulation_2<Kernel, Triangulation_data_structure, Tag> Constrained_delaunay_triangulation;
+typedef Enhanced_constrained_triangulation_2<Constrained_delaunay_triangulation> Triangulation;
+typedef CGAL::Point_set_3<Kernel::Point_3> Point_cloud;
+typedef CGAL::Octree<Kernel, Point_cloud, Point_cloud::Point_map> Octree;
 
-struct VertexInfo {
+
+struct Vertex_info {
   Kernel::FT z;
-  VertexInfo() {
+  Vertex_info() {
     z = 0.0;
   }
 };
@@ -270,7 +274,7 @@ int triangulate_polygons(std::vector<Polygon> &map_polygons) {
   return 0;
 }
 
-int index(std::vector<Polygon> &map_polygons) {
+int index_polygons(std::vector<Polygon> &map_polygons, std::unordered_map<Kernel::Point_2, std::set<std::size_t>> &points_index) {
   
   // Compute bounds
   clock_t start_time = clock();
@@ -288,7 +292,6 @@ int index(std::vector<Polygon> &map_polygons) {
   }
   
   // Index
-  std::unordered_map<Kernel::Point_2, std::set<std::size_t>> points_index;
   for (std::size_t current_polygon = 0; current_polygon < map_polygons.size(); ++current_polygon) {
     for (auto vertex: map_polygons[current_polygon].triangulation.finite_vertex_handles()) {
       bool incident_to_interior = false;
@@ -304,14 +307,14 @@ int index(std::vector<Polygon> &map_polygons) {
     }
   }
   
-  std::cout << "Indexed " << points_index.size() << " points in ";
+  std::cout << "Indexed " << points_index.size() << " polygon triangulation boundary points in ";
   printTimer(start_time);
   std::cout << " using ";
   printMemoryUsage();
   return 0;
 }
 
-int load_point_cloud(const char *input_point_cloud, CGAL::Point_set_3<Kernel::Point_3> &point_cloud) {
+int load_point_cloud(const char *input_point_cloud, Point_cloud &point_cloud) {
   clock_t start_time = clock();
   std::cout << "Input point cloud: " << input_point_cloud << std::endl;
   pdal::Options input_opts;
@@ -333,6 +336,17 @@ int load_point_cloud(const char *input_point_cloud, CGAL::Point_set_3<Kernel::Po
   }
   
   std::cout << "Loaded " << las_header.pointCount() << " points in ";
+  printTimer(start_time);
+  std::cout << " using ";
+  printMemoryUsage();
+  return 0;
+}
+
+int index_point_cloud(Point_cloud &point_cloud, Octree *octree) {
+  clock_t start_time = clock();
+  octree = new Octree(point_cloud, point_cloud.point_map());
+  octree->refine(10, 100);
+  std::cout << "Indexed " << point_cloud.size() << " point cloud points in ";
   printTimer(start_time);
   std::cout << " using ";
   printMemoryUsage();
@@ -373,12 +387,18 @@ int main(int argc, const char * argv[]) {
   const char *output_3dcm = "/Users/ken/Downloads/exeter.obj";
   
   std::vector<Polygon> map_polygons;
-  CGAL::Point_set_3<Kernel::Point_3> point_cloud;
+  std::unordered_map<Kernel::Point_2, std::set<std::size_t>> points_index;
+  Point_cloud point_cloud;
+  Octree *octree = NULL;
   
   load_map(input_map, map_polygons);
   triangulate_polygons(map_polygons);
-  index(map_polygons);
-//  load_point_cloud(input_point_cloud, point_cloud);
+  index_polygons(map_polygons, points_index);
+  load_point_cloud(input_point_cloud, point_cloud);
+  index_point_cloud(point_cloud, octree);
+//  Octree::Bbox bbox = octree->bbox(octree->root());
+//  std::cout << bbox.min(0)
+  delete octree;
   write_obj(output_3dcm, map_polygons);
   
   return 0;
