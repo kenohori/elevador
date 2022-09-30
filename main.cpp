@@ -316,8 +316,8 @@ int index_polygons(std::vector<Polygon> &map_polygons, std::unordered_map<Kernel
   for (auto const &polygon: map_polygons) {
     if (polygon.x_min < x_min) x_min = polygon.x_min;
     if (polygon.x_max > x_max) x_max = polygon.x_max;
-    if (polygon.y_min < y_min) x_min = polygon.y_min;
-    if (polygon.y_max > y_max) x_max = polygon.y_max;
+    if (polygon.y_min < y_min) y_min = polygon.y_min;
+    if (polygon.y_max > y_max) y_max = polygon.y_max;
   } std::cout << "Map extent: X = [" << x_min << ", " << x_max << "] Y = [" << y_min << ", " << y_max << "]" << std::endl;
   
   std::cout << "Indexed " << points_index.size() << " polygon triangulation boundary points in ";
@@ -348,6 +348,9 @@ int load_point_cloud(const char *input_point_cloud, Point_cloud &point_cloud) {
     
   }
   
+  // Print extent
+  std::cout << "Point cloud extent: X = [" << las_header.minX() << ", " << las_header.maxX() << "] Y = [" << las_header.minY() << ", " << las_header.maxY() << "] Z = [" << las_header.minZ() << ", " << las_header.maxZ() << "]" << std::endl;
+  
   std::cout << "Loaded " << las_header.pointCount() << " points in ";
   printTimer(start_time);
   std::cout << " using ";
@@ -356,9 +359,16 @@ int load_point_cloud(const char *input_point_cloud, Point_cloud &point_cloud) {
 }
 
 int index_point_cloud(Point_cloud &point_cloud, Octree *octree) {
+  
+  // Index point cloud using octree
   clock_t start_time = clock();
   octree = new Octree(point_cloud, point_cloud.point_map());
   octree->refine(10, 100);
+  
+  // Print bbox
+  Octree::Bbox bbox = octree->bbox(octree->root());
+  std::cout << "Octree extent: X = [" << bbox.min(0) << ", " << bbox.max(0) << "] Y = [" << bbox.min(1) << ", " << bbox.max(1) << "] Z = [" << bbox.min(2) << ", " << bbox.max(2) << "]" << std::endl;
+  
   std::cout << "Indexed " << point_cloud.size() << " point cloud points in ";
   printTimer(start_time);
   std::cout << " using ";
@@ -413,8 +423,6 @@ int main(int argc, const char * argv[]) {
   index_polygons(map_polygons, points_index);
   load_point_cloud(input_point_cloud, point_cloud);
   index_point_cloud(point_cloud, octree);
-//  Octree::Bbox bbox = octree->bbox(octree->root());
-//  std::cout << bbox.min(0)
   delete octree;
   write_obj(output_3dcm, map_polygons);
   
