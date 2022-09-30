@@ -7,6 +7,7 @@
 #include <CGAL/Triangulation_vertex_base_with_info_2.h>
 #include <CGAL/Triangulation_face_base_with_info_2.h>
 #include "Enhanced_constrained_triangulation_2.h"
+#include <CGAL/Point_set_3.h>
 
 #include <ogrsf_frmts.h>
 
@@ -19,6 +20,14 @@
 
 typedef CGAL::Exact_predicates_inexact_constructions_kernel Kernel;
 typedef CGAL::Exact_predicates_tag Tag;
+struct VertexInfo;
+typedef CGAL::Triangulation_vertex_base_with_info_2<VertexInfo, Kernel> VertexBase;
+typedef CGAL::Constrained_triangulation_face_base_2<Kernel> FaceBase;
+struct FaceInfo;
+typedef CGAL::Triangulation_face_base_with_info_2<FaceInfo, Kernel, FaceBase> FaceBaseWithInfo;
+typedef CGAL::Triangulation_data_structure_2<VertexBase, FaceBaseWithInfo> TriangulationDataStructure;
+typedef CGAL::Constrained_Delaunay_triangulation_2<Kernel, TriangulationDataStructure, Tag> ConstrainedDelaunayTriangulation;
+typedef Enhanced_constrained_triangulation_2<ConstrainedDelaunayTriangulation> Triangulation;
 
 struct VertexInfo {
   Kernel::FT z;
@@ -36,13 +45,6 @@ struct FaceInfo {
   }
 };
 
-typedef CGAL::Triangulation_vertex_base_with_info_2<VertexInfo, Kernel> VertexBase;
-typedef CGAL::Constrained_triangulation_face_base_2<Kernel> FaceBase;
-typedef CGAL::Triangulation_face_base_with_info_2<FaceInfo, Kernel, FaceBase> FaceBaseWithInfo;
-typedef CGAL::Triangulation_data_structure_2<VertexBase, FaceBaseWithInfo> TriangulationDataStructure;
-typedef CGAL::Constrained_Delaunay_triangulation_2<Kernel, TriangulationDataStructure, Tag> ConstrainedDelaunayTriangulation;
-typedef Enhanced_constrained_triangulation_2<ConstrainedDelaunayTriangulation> Triangulation;
-
 struct Ring {
   std::vector<Kernel::Point_2> points;
 };
@@ -52,6 +54,7 @@ struct Polygon {
   std::vector<Ring> inner_rings;
   Triangulation triangulation;
   std::string cityjson_class;
+  Kernel::FT x_min, x_max, y_min, y_max;
 };
 
 void printTimer(clock_t &start_time) {
@@ -80,6 +83,7 @@ void printMemoryUsage() {
 }
 
 int load_map(const char *input_map, std::vector<Polygon> &map_polygons) {
+  
   // Prepare input map
   clock_t start_time = clock();
   GDALAllRegister();
@@ -148,7 +152,9 @@ int load_map(const char *input_map, std::vector<Polygon> &map_polygons) {
 }
 
 int triangulate_polygons(std::vector<Polygon> &map_polygons) {
+  
   // Basic polygon repair (pre-requisite for triangulation)
+  clock_t start_time = clock();
   auto current_polygon = map_polygons.begin();
   while (current_polygon != map_polygons.end()) {
     // Close polygons and rings
@@ -184,7 +190,6 @@ int triangulate_polygons(std::vector<Polygon> &map_polygons) {
   }
   
   // Triangulate polygons
-  clock_t start_time = clock();
   for (auto &polygon: map_polygons) {
     
     // Triangle (optimisation)
@@ -258,15 +263,55 @@ int triangulate_polygons(std::vector<Polygon> &map_polygons) {
       }
     }
       
-  } std::cout << "Triangulated polygons in ";
+  } std::cout << "Repaired and triangulated " << map_polygons.size() << " polygons in ";
   printTimer(start_time);
   std::cout << " using ";
   printMemoryUsage();
   return 0;
 }
 
-int load_point_cloud(const char *input_point_cloud) {
-  // Load point cloud
+int index(std::vector<Polygon> &map_polygons) {
+  
+  // Compute bounds
+  clock_t start_time = clock();
+  for (auto &polygon: map_polygons) {
+    polygon.x_min = polygon.outer_ring.points.front().x();
+    polygon.x_max = polygon.outer_ring.points.front().x();
+    polygon.y_min = polygon.outer_ring.points.front().y();
+    polygon.y_max = polygon.outer_ring.points.front().y();
+    for (auto const &point: polygon.outer_ring.points) {
+      if (point.x() < polygon.x_min) polygon.x_min = point.x();
+      if (point.x() > polygon.x_max) polygon.x_max = point.x();
+      if (point.y() < polygon.y_min) polygon.y_min = point.y();
+      if (point.y() > polygon.y_max) polygon.y_max = point.y();
+    }
+  }
+  
+  // Index
+  std::unordered_map<Kernel::Point_2, std::set<std::size_t>> points_index;
+  for (std::size_t current_polygon = 0; current_polygon < map_polygons.size(); ++current_polygon) {
+    for (auto vertex: map_polygons[current_polygon].triangulation.finite_vertex_handles()) {
+      bool incident_to_interior = false;
+      bool incident_to_exterior = false;
+      Triangulation::Face_circulator first_face = map_polygons[current_polygon].triangulation.incident_faces(vertex);
+      Triangulation::Face_circulator current_face = first_face;
+      do {
+        if (current_face->info().interior) incident_to_interior = true;
+        else incident_to_exterior = true;
+        ++current_face;
+      } while (current_face != first_face);
+      if (incident_to_interior && incident_to_exterior) points_index[vertex->point()].insert(current_polygon);
+    }
+  }
+  
+  std::cout << "Indexed " << points_index.size() << " points in ";
+  printTimer(start_time);
+  std::cout << " using ";
+  printMemoryUsage();
+  return 0;
+}
+
+int load_point_cloud(const char *input_point_cloud, CGAL::Point_set_3<Kernel::Point_3> &point_cloud) {
   clock_t start_time = clock();
   std::cout << "Input point cloud: " << input_point_cloud << std::endl;
   pdal::Options input_opts;
@@ -279,6 +324,14 @@ int load_point_cloud(const char *input_point_cloud) {
   pdal::PointViewPtr point_view = *point_view_set.begin();
   pdal::Dimension::IdList dims = point_view->dims();
   pdal::LasHeader las_header = las_reader.header();
+  
+  for (pdal::PointId idx = 0; idx < point_view->size(); ++idx) {
+    point_cloud.insert(Kernel::Point_3(point_view->getFieldAs<double>(pdal::Dimension::Id::X, idx),
+                                       point_view->getFieldAs<double>(pdal::Dimension::Id::Y, idx),
+                                       point_view->getFieldAs<double>(pdal::Dimension::Id::Z, idx)));
+    
+  }
+  
   std::cout << "Loaded " << las_header.pointCount() << " points in ";
   printTimer(start_time);
   std::cout << " using ";
@@ -287,7 +340,6 @@ int load_point_cloud(const char *input_point_cloud) {
 }
 
 int write_obj(const char *output_3dcm, std::vector<Polygon> &map_polygons) {
-  // Write OBJ
   clock_t start_time = clock();
   std::ofstream output_stream;
   output_stream.open(output_3dcm);
@@ -321,10 +373,12 @@ int main(int argc, const char * argv[]) {
   const char *output_3dcm = "/Users/ken/Downloads/exeter.obj";
   
   std::vector<Polygon> map_polygons;
+  CGAL::Point_set_3<Kernel::Point_3> point_cloud;
   
   load_map(input_map, map_polygons);
   triangulate_polygons(map_polygons);
-  load_point_cloud(input_point_cloud);
+  index(map_polygons);
+//  load_point_cloud(input_point_cloud, point_cloud);
   write_obj(output_3dcm, map_polygons);
   
   return 0;
