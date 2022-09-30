@@ -276,23 +276,10 @@ int triangulate_polygons(std::vector<Polygon> &map_polygons) {
 
 int index_polygons(std::vector<Polygon> &map_polygons, std::unordered_map<Kernel::Point_2, std::set<std::size_t>> &points_index) {
   
-  // Compute bounds
+  // Compute bounds and index boundary vertices of repaired polygons
   clock_t start_time = clock();
-  for (auto &polygon: map_polygons) {
-    polygon.x_min = polygon.outer_ring.points.front().x();
-    polygon.x_max = polygon.outer_ring.points.front().x();
-    polygon.y_min = polygon.outer_ring.points.front().y();
-    polygon.y_max = polygon.outer_ring.points.front().y();
-    for (auto const &point: polygon.outer_ring.points) {
-      if (point.x() < polygon.x_min) polygon.x_min = point.x();
-      if (point.x() > polygon.x_max) polygon.x_max = point.x();
-      if (point.y() < polygon.y_min) polygon.y_min = point.y();
-      if (point.y() > polygon.y_max) polygon.y_max = point.y();
-    }
-  }
-  
-  // Index
   for (std::size_t current_polygon = 0; current_polygon < map_polygons.size(); ++current_polygon) {
+    bool first_boundary_point = true;
     for (auto vertex: map_polygons[current_polygon].triangulation.finite_vertex_handles()) {
       bool incident_to_interior = false;
       bool incident_to_exterior = false;
@@ -303,9 +290,35 @@ int index_polygons(std::vector<Polygon> &map_polygons, std::unordered_map<Kernel
         else incident_to_exterior = true;
         ++current_face;
       } while (current_face != first_face);
-      if (incident_to_interior && incident_to_exterior) points_index[vertex->point()].insert(current_polygon);
+      if (incident_to_interior && incident_to_exterior) {
+        points_index[vertex->point()].insert(current_polygon);
+        if (first_boundary_point) {
+          map_polygons[current_polygon].x_min = vertex->point().x();
+          map_polygons[current_polygon].x_max = vertex->point().x();
+          map_polygons[current_polygon].y_min = vertex->point().y();
+          map_polygons[current_polygon].y_max = vertex->point().y();
+          first_boundary_point = false;
+        } else {
+          if (vertex->point().x() < map_polygons[current_polygon].x_min) map_polygons[current_polygon].x_min = vertex->point().x();
+          if (vertex->point().x() > map_polygons[current_polygon].x_max) map_polygons[current_polygon].x_max = vertex->point().x();
+          if (vertex->point().y() < map_polygons[current_polygon].y_min) map_polygons[current_polygon].y_min = vertex->point().y();
+          if (vertex->point().y() > map_polygons[current_polygon].y_max) map_polygons[current_polygon].y_max = vertex->point().y();
+        }
+      }
     }
   }
+  
+  // Print extent
+  Kernel::FT x_min = map_polygons.front().x_min;
+  Kernel::FT x_max = map_polygons.front().x_max;
+  Kernel::FT y_min = map_polygons.front().y_min;
+  Kernel::FT y_max = map_polygons.front().y_max;
+  for (auto const &polygon: map_polygons) {
+    if (polygon.x_min < x_min) x_min = polygon.x_min;
+    if (polygon.x_max > x_max) x_max = polygon.x_max;
+    if (polygon.y_min < y_min) x_min = polygon.y_min;
+    if (polygon.y_max > y_max) x_max = polygon.y_max;
+  } std::cout << "Map extent: X = [" << x_min << ", " << x_max << "] Y = [" << y_min << ", " << y_max << "]" << std::endl;
   
   std::cout << "Indexed " << points_index.size() << " polygon triangulation boundary points in ";
   printTimer(start_time);
@@ -350,6 +363,10 @@ int index_point_cloud(Point_cloud &point_cloud, Octree *octree) {
   printTimer(start_time);
   std::cout << " using ";
   printMemoryUsage();
+  return 0;
+}
+
+int create_buildings(std::vector<Polygon> &map_polygons, Point_cloud &point_cloud, Octree *octree) {
   return 0;
 }
 
