@@ -8,7 +8,7 @@
 #include <CGAL/Triangulation_face_base_with_info_2.h>
 #include "Enhanced_constrained_triangulation_2.h"
 #include <CGAL/Point_set_3.h>
-#include <CGAL/Octree.h>
+#include "Quadtree.h"
 
 #include <ogrsf_frmts.h>
 
@@ -30,8 +30,7 @@ typedef CGAL::Triangulation_data_structure_2<Vertex_base, Face_base_with_info> T
 typedef CGAL::Constrained_Delaunay_triangulation_2<Kernel, Triangulation_data_structure, Tag> Constrained_delaunay_triangulation;
 typedef Enhanced_constrained_triangulation_2<Constrained_delaunay_triangulation> Triangulation;
 typedef CGAL::Point_set_3<Kernel::Point_3> Point_cloud;
-typedef CGAL::Octree<Kernel, Point_cloud, Point_cloud::Point_map> Octree;
-
+typedef Quadtree<Kernel, Point_cloud> Index;
 
 struct Vertex_info {
   Kernel::FT z;
@@ -358,17 +357,16 @@ int load_point_cloud(const char *input_point_cloud, Point_cloud &point_cloud) {
   return 0;
 }
 
-int index_point_cloud(Point_cloud &point_cloud, Octree *octree) {
+int index_point_cloud(Point_cloud &point_cloud, Index &index) {
   
-  // Index point cloud using octree
+  // Index point cloud
   clock_t start_time = clock();
-  octree = new Octree(point_cloud, point_cloud.point_map());
-  octree->refine(10, 100);
+  index.compute_extent(point_cloud);
+  for (Point_cloud::const_iterator point_index = point_cloud.begin(); point_index != point_cloud.end(); ++point_index) index.insert_point(point_cloud, *point_index);
+  index.optimise(point_cloud, 100, 11);
   
-  // Print bbox
-  Octree::Bbox bbox = octree->bbox(octree->root());
-  std::cout << "Octree extent: X = [" << bbox.min(0) << ", " << bbox.max(0) << "] Y = [" << bbox.min(1) << ", " << bbox.max(1) << "] Z = [" << bbox.min(2) << ", " << bbox.max(2) << "]" << std::endl;
-  
+  // Print quadtree info
+  index.print_info();
   std::cout << "Indexed " << point_cloud.size() << " point cloud points in ";
   printTimer(start_time);
   std::cout << " using ";
@@ -376,7 +374,18 @@ int index_point_cloud(Point_cloud &point_cloud, Octree *octree) {
   return 0;
 }
 
-int create_buildings(std::vector<Polygon> &map_polygons, Point_cloud &point_cloud, Octree *octree) {
+int create_buildings(std::vector<Polygon> &map_polygons, Point_cloud &point_cloud, Index &index) {
+  std::size_t n_buildings = 0;
+  for (auto &polygon: map_polygons) {
+    if (polygon.cityjson_class == "Building") {
+//      std::vector<Octree::Node> intersected_nodes;
+//      CGAL::Bbox_3 polygon_bbox(polygon.x_min, polygon.y_min, -1000.0,
+//                                polygon.x_max, polygon.y_max, 9000.0);
+//      octree->intersected_nodes(polygon_bbox, std::back_inserter(intersected_nodes));
+//      std::cout << "Building " << n_buildings << ": intersects " << intersected_nodes.size() << " octree leaves" << std::endl;
+      ++n_buildings;
+    }
+  } std::cout << n_buildings << " buildings processed" << std::endl;
   return 0;
 }
 
@@ -416,14 +425,14 @@ int main(int argc, const char * argv[]) {
   std::vector<Polygon> map_polygons;
   std::unordered_map<Kernel::Point_2, std::set<std::size_t>> points_index;
   Point_cloud point_cloud;
-  Octree *octree = NULL;
+  Index index;
   
   load_map(input_map, map_polygons);
   triangulate_polygons(map_polygons);
   index_polygons(map_polygons, points_index);
   load_point_cloud(input_point_cloud, point_cloud);
-  index_point_cloud(point_cloud, octree);
-  delete octree;
+  index_point_cloud(point_cloud, index);
+  create_buildings(map_polygons, point_cloud, index);
   write_obj(output_3dcm, map_polygons);
   
   return 0;
