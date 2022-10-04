@@ -49,7 +49,7 @@ struct Quadtree {
   }
   
   void optimise(Point_cloud &point_cloud, std::size_t bucket_size, unsigned int maximum_depth) {
-    if (points.size() < bucket_size || depth+2 >= maximum_depth) return;
+    if (points.size() < bucket_size || depth+1 >= maximum_depth) return;
     typename Kernel::FT x_split = (x_min+x_max)/2.0;
     typename Kernel::FT y_split = (y_min+y_max)/2.0;
     upper_left = new Quadtree(depth+1, x_min, x_split, y_split, y_max);
@@ -70,6 +70,22 @@ struct Quadtree {
     upper_right->optimise(point_cloud, bucket_size, maximum_depth);
     lower_left->optimise(point_cloud, bucket_size, maximum_depth);
     lower_right->optimise(point_cloud, bucket_size, maximum_depth);
+  }
+  
+  bool intersects(typename Kernel::FT x_min, typename Kernel::FT x_max, typename Kernel::FT y_min, typename Kernel::FT y_max) {
+    if (x_max < this->x_min) return false;
+    if (x_min > this->x_max) return false;
+    if (y_min > this->y_max) return false;
+    if (y_max < this->y_min) return false;
+    return true;
+  }
+  
+  void find_intersections(std::vector<Quadtree *> &nodes, typename Kernel::FT x_min, typename Kernel::FT x_max, typename Kernel::FT y_min, typename Kernel::FT y_max) {
+    if (!points.empty()) nodes.push_back(this);
+    if (upper_left != NULL && upper_left->intersects(x_min, x_max, y_min, y_max)) upper_left->find_intersections(nodes, x_min, x_max, y_min, y_max);
+    if (upper_right != NULL && upper_right->intersects(x_min, x_max, y_min, y_max)) upper_right->find_intersections(nodes, x_min, x_max, y_min, y_max);
+    if (lower_left != NULL && lower_left->intersects(x_min, x_max, y_min, y_max)) lower_left->find_intersections(nodes, x_min, x_max, y_min, y_max);
+    if (lower_right != NULL && lower_right->intersects(x_min, x_max, y_min, y_max)) lower_right->find_intersections(nodes, x_min, x_max, y_min, y_max);
   }
   
   void print_info() {

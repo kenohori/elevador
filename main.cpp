@@ -363,7 +363,7 @@ int index_point_cloud(Point_cloud &point_cloud, Index &index) {
   clock_t start_time = clock();
   index.compute_extent(point_cloud);
   for (Point_cloud::const_iterator point_index = point_cloud.begin(); point_index != point_cloud.end(); ++point_index) index.insert_point(point_cloud, *point_index);
-  index.optimise(point_cloud, 100, 11);
+  index.optimise(point_cloud, 100, 10);
   
   // Print quadtree info
   index.print_info();
@@ -375,17 +375,19 @@ int index_point_cloud(Point_cloud &point_cloud, Index &index) {
 }
 
 int create_buildings(std::vector<Polygon> &map_polygons, Point_cloud &point_cloud, Index &index) {
+  clock_t start_time = clock();
   std::size_t n_buildings = 0;
   for (auto &polygon: map_polygons) {
     if (polygon.cityjson_class == "Building") {
-//      std::vector<Octree::Node> intersected_nodes;
-//      CGAL::Bbox_3 polygon_bbox(polygon.x_min, polygon.y_min, -1000.0,
-//                                polygon.x_max, polygon.y_max, 9000.0);
-//      octree->intersected_nodes(polygon_bbox, std::back_inserter(intersected_nodes));
-//      std::cout << "Building " << n_buildings << ": intersects " << intersected_nodes.size() << " octree leaves" << std::endl;
+      std::vector<Index *> intersected_nodes;
+      index.find_intersections(intersected_nodes, polygon.x_min, polygon.y_min, polygon.x_max, polygon.y_max);
+      std::cout << "Building " << n_buildings << ": intersects " << intersected_nodes.size() << " index nodes" << std::endl;
       ++n_buildings;
     }
-  } std::cout << n_buildings << " buildings processed" << std::endl;
+  } std::cout << n_buildings << " buildings processed in ";
+  printTimer(start_time);
+  std::cout << " using ";
+  printMemoryUsage();
   return 0;
 }
 
