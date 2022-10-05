@@ -381,7 +381,25 @@ int create_buildings(std::vector<Polygon> &map_polygons, Point_cloud &point_clou
     if (polygon.cityjson_class == "Building") {
       std::vector<Index *> intersected_nodes;
       index.find_intersections(intersected_nodes, polygon.x_min, polygon.x_max, polygon.y_min, polygon.y_max);
-      std::cout << "Building: " << n_buildings << " X = [" << polygon.x_min << ", " << polygon.x_max << "] Y = [" << polygon.y_min << ", " << polygon.y_max << "] intersects " << intersected_nodes.size() << " index nodes" << std::endl;
+//      std::cout << "Building: " << n_buildings << " X = [" << polygon.x_min << ", " << polygon.x_max << "] Y = [" << polygon.y_min << ", " << polygon.y_max << "] intersects " << intersected_nodes.size() << " index nodes" << std::endl;
+      std::vector<Point_cloud::Index> points_in_polygon;
+      for (auto const &node: intersected_nodes) {
+        for (auto const &point_index: node->points) {
+          Triangulation::Face_handle face = polygon.triangulation.locate(Kernel::Point_2(point_cloud.point(point_index).x(),
+                                                                                         point_cloud.point(point_index).y()));
+          if (!polygon.triangulation.is_infinite(face) && face->info().interior) points_in_polygon.push_back(point_index);
+        }
+      } // std::cout << "Building: " << n_buildings << ": " << points_in_polygon.size() << " points" << std::endl;
+      
+      Kernel::FT sum_of_elevations = 0.0;
+      for (auto const &point_index: points_in_polygon) sum_of_elevations += point_cloud.point(point_index).z();
+      Kernel::FT building_elevation = sum_of_elevations/points_in_polygon.size();
+      for (Triangulation::Finite_vertices_iterator current_vertex = polygon.triangulation.finite_vertices_begin();
+           current_vertex != polygon.triangulation.finite_vertices_end();
+           ++current_vertex) {
+        current_vertex->info().z = building_elevation;
+      }
+      
       ++n_buildings;
     }
   } std::cout << n_buildings << " buildings processed in ";
@@ -405,7 +423,7 @@ int write_obj(const char *output_3dcm, std::vector<Polygon> &map_polygons) {
          current_face != map_polygons[current_polygon].triangulation.finite_faces_end();
          ++current_face) {
       if (current_face->info().interior == false) continue;
-      for (int v = 0; v < 3; ++v) output_stream << "v " << current_face->vertex(v)->point().x() << " " << current_face->vertex(v)->point().y() << " 0.0\n";
+      for (int v = 0; v < 3; ++v) output_stream << "v " << current_face->vertex(v)->point().x() << " " << current_face->vertex(v)->point().y() << " " << current_face->vertex(v)->info().z << "\n";
       output_objects += "f " + std::to_string(3*num_faces+1) + " " + std::to_string(3*num_faces+2) + " " + std::to_string(3*num_faces+3) + "\n";
       ++num_faces;
     }
