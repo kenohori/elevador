@@ -4,6 +4,7 @@
 #include <mach/mach.h>
 
 #include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
+#include <CGAL/squared_distance_2.h>
 #include <CGAL/Constrained_Delaunay_triangulation_2.h>
 #include <CGAL/Triangulation_vertex_base_with_info_2.h>
 #include <CGAL/Triangulation_face_base_with_info_2.h>
@@ -429,18 +430,17 @@ int create_terrain(std::vector<Polygon> &map_polygons, Point_cloud &point_cloud,
   return 0;
 }
 
-int create_flat_polygons_using_point_in_polygon(std::vector<Polygon> &map_polygons, const char *cityjson_class, Point_cloud &point_cloud, Index &index, Kernel::FT ratio_to_use) {
-  
+int lift_flat_polygons(std::vector<Polygon> &map_polygons, const char *cityjson_class, Point_cloud &point_cloud, Index &index, Kernel::FT ratio_to_use) {
   clock_t start_time = clock();
-  std::size_t n_processed = 0;
+  std::size_t n_polygons = 0;
   for (auto &polygon: map_polygons) {
     if (polygon.cityjson_class == cityjson_class) {
       
-      // Find index nodes overlapping the building bbox
+      // Find index nodes overlapping the polygon bbox
       std::vector<Index *> intersected_nodes;
       index.find_intersections(intersected_nodes, polygon.x_min, polygon.x_max, polygon.y_min, polygon.y_max);
       
-      // Find PC points overlapping the building polygon
+      // Find PC points overlapping the polygon
       std::vector<Point_cloud::Index> points_in_polygon;
       for (auto const &node: intersected_nodes) {
         for (auto const &point_index: node->points) {
@@ -453,22 +453,17 @@ int create_flat_polygons_using_point_in_polygon(std::vector<Polygon> &map_polygo
       // If there are points, use thoses
       if (!points_in_polygon.empty()) {
         
-        // Average of point elevations
-//        Kernel::FT sum_of_elevations = 0.0;
-//        for (auto const &point_index: points_in_polygon) sum_of_elevations += point_cloud.point(point_index).z();
-//        Kernel::FT building_elevation = sum_of_elevations/points_in_polygon.size();
-        
-        // Use predefined ratio
+        // Sort elevations to obtain elevation
         std::vector<Kernel::FT> elevations;
         for (auto const &point_index: points_in_polygon) elevations.push_back(point_cloud.point(point_index).z());
         std::sort(elevations.begin(), elevations.end());
-        Kernel::FT building_elevation = elevations[std::floor(ratio_to_use*elevations.size())];
+        Kernel::FT polygon_elevation = elevations[std::floor(ratio_to_use*elevations.size())];
         
-        // Set elevation of building polygon points to calculated elevation
+        // Set elevation of polygon points to calculated elevation
         for (Triangulation::Finite_vertices_iterator current_vertex = polygon.triangulation.finite_vertices_begin();
              current_vertex != polygon.triangulation.finite_vertices_end();
              ++current_vertex) {
-          current_vertex->info().z = building_elevation;
+          current_vertex->info().z = polygon_elevation;
         }
         
       }
@@ -478,20 +473,72 @@ int create_flat_polygons_using_point_in_polygon(std::vector<Polygon> &map_polygo
         
       }
       
-      ++n_processed;
+      ++n_polygons;
     }
   }
   
-  std::cout << "Created " << n_processed << " polygons for " << cityjson_class << " in ";
+  std::cout << "Lifted " << n_polygons << " flat " << cityjson_class << " polygons in ";
   printTimer(start_time);
   std::cout << " using ";
   printMemoryUsage();
   return 0;
 }
 
-int create_roads(std::vector<Polygon> &map_polygons, Point_cloud &point_cloud, Index &index) {
+int lift_polygon_vertices(std::vector<Polygon> &map_polygons, const char *cityjson_class, Kernel::FT buffer_size, Point_cloud &point_cloud, Index &index, Kernel::FT ratio_to_use) {
+  clock_t start_time = clock();
+  std::size_t n_vertices = 0, n_polygons = 0;
+  Kernel::FT squared_buffer_size = buffer_size*buffer_size;
+  for (auto &polygon: map_polygons) {
+    if (polygon.cityjson_class == cityjson_class) {
+      for (Triangulation::Finite_vertices_iterator current_vertex = polygon.triangulation.finite_vertices_begin();
+           current_vertex != polygon.triangulation.finite_vertices_end();
+           ++current_vertex) {
+        
+        // Find index nodes overlapping the buffer around the vertex
+        std::vector<Index *> intersected_nodes;
+        index.find_intersections(intersected_nodes, current_vertex->point().x()-buffer_size, current_vertex->point().x()+buffer_size,
+                                 current_vertex->point().y()-buffer_size, current_vertex->point().y()+buffer_size);
+        
+        // Find PC points within the buffer around the vertex
+        std::vector<Point_cloud::Index> points_in_buffer;
+        for (auto const &node: intersected_nodes) {
+          for (auto const &point_index: node->points) {
+            if (CGAL::squared_distance(current_vertex->point(), Kernel::Point_2(point_cloud.point(point_index).x(),
+                                                                                point_cloud.point(point_index).y())) < squared_buffer_size) {
+              points_in_buffer.push_back(point_index);
+            }
+          }
+        }
+        
+        // If there are points, use thoses
+        if (!points_in_buffer.empty()) {
+          
+          // Sort elevations to obtain elevation
+          std::vector<Kernel::FT> elevations;
+          for (auto const &point_index: points_in_buffer) elevations.push_back(point_cloud.point(point_index).z());
+          std::sort(elevations.begin(), elevations.end());
+          Kernel::FT vertex_elevation = elevations[std::floor(ratio_to_use*elevations.size())];
+          
+          // Set elevation of vertex to calculated elevation
+          current_vertex->info().z = vertex_elevation;
+        }
+        
+        // TODO: If there are no points
+        else {
+          
+        }
+        
+        ++n_vertices;
+      } ++n_polygons;
+    }
+  }
   
-  const Kernel::FT buffer_size = 10.0;
+  std::cout << "Lifted " << n_vertices << " vertices of " << n_polygons << " " << cityjson_class << " polygons for in ";
+  printTimer(start_time);
+  std::cout << " using ";
+  printMemoryUsage();
+  return 0;
+  
   return 0;
 }
 
@@ -539,11 +586,11 @@ int main(int argc, const char * argv[]) {
   load_point_cloud(input_point_cloud, point_cloud);
   index_point_cloud(point_cloud, index);
 //  create_terrain(map_polygons, point_cloud, index);
-  create_flat_polygons_using_point_in_polygon(map_polygons, "Building", point_cloud, index, 0.7);
-  create_flat_polygons_using_point_in_polygon(map_polygons, "Road", point_cloud, index, 0.5);
-  create_flat_polygons_using_point_in_polygon(map_polygons, "Railway", point_cloud, index, 0.5);
-  create_flat_polygons_using_point_in_polygon(map_polygons, "PlantCover", point_cloud, index, 0.1);
-  create_flat_polygons_using_point_in_polygon(map_polygons, "LandUse", point_cloud, index, 0.1);
+  lift_flat_polygons(map_polygons, "Building", point_cloud, index, 0.7);
+  lift_polygon_vertices(map_polygons, "Road", 5.0, point_cloud, index, 0.0);
+//  lift_flat_polygons(map_polygons, "Railway", point_cloud, index, 0.5);
+//  lift_flat_polygons(map_polygons, "PlantCover", point_cloud, index, 0.1);
+//  lift_flat_polygons(map_polygons, "LandUse", point_cloud, index, 0.1);
 //  create_roads(map_polygons, point_cloud, index);
   write_obj(output_3dcm, map_polygons);
   
