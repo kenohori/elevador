@@ -73,6 +73,7 @@ struct Quadtree {
   }
   
   bool intersects(typename Kernel::FT x_min, typename Kernel::FT x_max, typename Kernel::FT y_min, typename Kernel::FT y_max) {
+//    std::cout << "\tBB X = [" << x_min << ", " << x_max << "] Y = [" << y_min << ", " << y_max << "] intersects X = [" << this->x_min << ", " << this->x_max << "] Y = [" << this->y_min << ", " << this->y_max << "]" << std::endl;
     if (x_max < this->x_min) return false;
     if (x_min > this->x_max) return false;
     if (y_min > this->y_max) return false;

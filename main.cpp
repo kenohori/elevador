@@ -380,8 +380,8 @@ int create_buildings(std::vector<Polygon> &map_polygons, Point_cloud &point_clou
   for (auto &polygon: map_polygons) {
     if (polygon.cityjson_class == "Building") {
       std::vector<Index *> intersected_nodes;
-      index.find_intersections(intersected_nodes, polygon.x_min, polygon.y_min, polygon.x_max, polygon.y_max);
-      std::cout << "Building " << n_buildings << ": intersects " << intersected_nodes.size() << " index nodes" << std::endl;
+      index.find_intersections(intersected_nodes, polygon.x_min, polygon.x_max, polygon.y_min, polygon.y_max);
+      std::cout << "Building: " << n_buildings << " X = [" << polygon.x_min << ", " << polygon.x_max << "] Y = [" << polygon.y_min << ", " << polygon.y_max << "] intersects " << intersected_nodes.size() << " index nodes" << std::endl;
       ++n_buildings;
     }
   } std::cout << n_buildings << " buildings processed in ";
