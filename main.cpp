@@ -10,8 +10,8 @@
 #include <CGAL/Triangulation_face_base_with_info_2.h>
 #include "Enhanced_constrained_triangulation_2.h"
 #include <CGAL/Point_set_3.h>
-//#include <CGAL/random_simplify_point_set.h>
-//#include <CGAL/wlop_simplify_and_regularize_point_set.h>
+#include <CGAL/random_simplify_point_set.h>
+#include <CGAL/wlop_simplify_and_regularize_point_set.h>
 #include "Quadtree.h"
 
 #include <ogrsf_frmts.h>
@@ -322,7 +322,7 @@ int index_polygons(std::vector<Polygon> &map_polygons, std::unordered_map<Kernel
     if (polygon.x_max > x_max) x_max = polygon.x_max;
     if (polygon.y_min < y_min) y_min = polygon.y_min;
     if (polygon.y_max > y_max) y_max = polygon.y_max;
-  } std::cout << "Map extent: X = [" << x_min << ", " << x_max << "] Y = [" << y_min << ", " << y_max << "]" << std::endl;
+  } // std::cout << "Map extent: X = [" << x_min << ", " << x_max << "] Y = [" << y_min << ", " << y_max << "]" << std::endl;
   
   std::cout << "Indexed " << points_index.size() << " polygon triangulation boundary points in ";
   printTimer(start_time);
@@ -374,7 +374,7 @@ int index_point_cloud(Point_cloud &point_cloud, Index &index) {
   index.optimise(point_cloud, bucket_size, maximum_depth);
   
   // Print quadtree info
-  index.print_info();
+//  index.print_info();
   std::cout << "Indexed " << point_cloud.size() << " point cloud points in ";
   printTimer(start_time);
   std::cout << " using ";
@@ -382,14 +382,11 @@ int index_point_cloud(Point_cloud &point_cloud, Index &index) {
   return 0;
 }
 
-int create_terrain(std::vector<Polygon> &map_polygons, Point_cloud &point_cloud, Index &index) {
-  
-//  const double retain_percentage = 1.0;
-//  const double neighbour_radius = 0.5;
-  
-  // Remove points from undesirable classes
+int create_terrain_tin(std::vector<Polygon> &map_polygons, Point_cloud &point_cloud, Index &index) {
   clock_t start_time = clock();
   Point_cloud terrain_point_cloud = point_cloud;
+  
+  // Remove points from undesirable classes
 //  for (auto &polygon: map_polygons) {
 //    if (polygon.cityjson_class == "Building" ||
 //        polygon.cityjson_class == "WaterBody") {
@@ -403,18 +400,48 @@ int create_terrain(std::vector<Polygon> &map_polygons, Point_cloud &point_cloud,
 //        }
 //      }
 //    }
-//  } std::cout << "Removed " << terrain_point_cloud.garbage_size() << " points from terrain point cloud" << std::endl;
+//  } std::cout << "Used map polygons to remove " << terrain_point_cloud.garbage_size() << " points from terrain point cloud" << std::endl;
   
-  // Thinning
+  // Simplify (random)
 //  Point_cloud::iterator first_point_to_remove = CGAL::random_simplify_point_set(terrain_point_cloud, 99.0);
 //  terrain_point_cloud.remove(first_point_to_remove, terrain_point_cloud.end());
-//  std::cout << "Thinned point cloud to " << terrain_point_cloud.number_of_points() << " points" << std::endl;
+//  std::cout << terrain_point_cloud.size() << " points in terrain point cloud" << std::endl;
   
-  // Simplify
-//  CGAL::wlop_simplify_and_regularize_point_set<Concurrency_tag>(point_cloud, terrain_point_cloud.point_back_inserter(),
+  // Simplify (WLOP)
+//  Point_cloud simplified_point_cloud;
+//  const double retain_percentage = 0.1;
+//  const double neighbour_radius = 5.0;
+//  CGAL::wlop_simplify_and_regularize_point_set<Concurrency_tag>(terrain_point_cloud, simplified_point_cloud.point_back_inserter(),
 //                                                                CGAL::parameters::select_percentage(retain_percentage).
 //                                                                neighbor_radius(neighbour_radius));
-//  std::cout << terrain_point_cloud.size() << " points in terrain point cloud" << std::endl;
+//  terrain_point_cloud = simplified_point_cloud;
+  
+  // Simplify using 2D grid
+  Point_cloud simplified_point_cloud;
+  const Kernel::FT cell_size = 5.0;
+  const Kernel::FT ratio_to_use = 0.1;
+  for (Kernel::FT x = index.x_min+0.5*cell_size; x < index.x_max; x += cell_size) {
+    for (Kernel::FT y = index.y_min+0.5*cell_size; y < index.y_max; y += cell_size) {
+      std::vector<Index *> intersected_nodes;
+      index.find_intersections(intersected_nodes, x-0.5*cell_size, x+0.5*cell_size, y-0.5*cell_size, y+0.5*cell_size);
+      std::vector<Kernel::FT> elevations;
+      for (auto const &node: intersected_nodes) {
+        for (auto const &point_index: node->points) {
+          if (point_cloud.point(point_index).x() >= x-0.5*cell_size &&
+              point_cloud.point(point_index).x() <= x+0.5*cell_size &&
+              point_cloud.point(point_index).y() >= y-0.5*cell_size &&
+              point_cloud.point(point_index).y() <= y+0.5*cell_size) {
+            elevations.push_back(point_cloud.point(point_index).z());
+          }
+        }
+      } if (!elevations.empty()) {
+        std::sort(elevations.begin(), elevations.end());
+        simplified_point_cloud.insert(Kernel::Point_3(x, y, elevations[std::floor(ratio_to_use*elevations.size())]));
+      }
+    }
+  } terrain_point_cloud = simplified_point_cloud;
+  
+  std::cout << "Simplified point cloud to " << terrain_point_cloud.number_of_points() << " points" << std::endl;
   
   // Create TIN
   Triangulation terrain_triangulation;
@@ -422,11 +449,26 @@ int create_terrain(std::vector<Polygon> &map_polygons, Point_cloud &point_cloud,
     Triangulation::Vertex_handle vertex = terrain_triangulation.insert(Kernel::Point_2(point.x(), point.y()));
     vertex->info().z = point.z();
   }
-  
+
   std::cout << "Created terrain TIN with " << terrain_triangulation.number_of_faces() << " triangles in ";
   printTimer(start_time);
   std::cout << " using ";
   printMemoryUsage();
+  
+  // Write TIN
+  std::ofstream output_stream;
+  output_stream.open("/Users/ken/Downloads/terrain.obj");
+  std::string output_objects;
+  std::size_t num_faces = 0;
+  for (Triangulation::Finite_faces_iterator current_face = terrain_triangulation.finite_faces_begin();
+       current_face != terrain_triangulation.finite_faces_end();
+       ++current_face) {
+    for (int v = 0; v < 3; ++v) output_stream << "v " << current_face->vertex(v)->point().x() << " " << current_face->vertex(v)->point().y() << " " << current_face->vertex(v)->info().z << "\n";
+    output_objects += "f " + std::to_string(3*num_faces+1) + " " + std::to_string(3*num_faces+2) + " " + std::to_string(3*num_faces+3) + "\n";
+    ++num_faces;
+  } output_stream << output_objects;
+  output_stream.close();
+  
   return 0;
 }
 
@@ -585,14 +627,14 @@ int main(int argc, const char * argv[]) {
   index_polygons(map_polygons, points_index);
   load_point_cloud(input_point_cloud, point_cloud);
   index_point_cloud(point_cloud, index);
-//  create_terrain(map_polygons, point_cloud, index);
-  lift_flat_polygons(map_polygons, "Building", point_cloud, index, 0.7);
-  lift_polygon_vertices(map_polygons, "Road", 5.0, point_cloud, index, 0.0);
-//  lift_flat_polygons(map_polygons, "Railway", point_cloud, index, 0.5);
-//  lift_flat_polygons(map_polygons, "PlantCover", point_cloud, index, 0.1);
-//  lift_flat_polygons(map_polygons, "LandUse", point_cloud, index, 0.1);
+  create_terrain_tin(map_polygons, point_cloud, index);
+//  lift_flat_polygons(map_polygons, "Building", point_cloud, index, 0.7);
+//  lift_polygon_vertices(map_polygons, "Road", 5.0, point_cloud, index, 0.0);
+//  lift_polygon_vertices(map_polygons, "Railway", 5.0, point_cloud, index, 0.0);
+//  lift_polygon_vertices(map_polygons, "PlantCover", 5.0, point_cloud, index, 0.5);
+//  lift_polygon_vertices(map_polygons, "LandUse", 5.0, point_cloud, index, 0.5);
 //  create_roads(map_polygons, point_cloud, index);
-  write_obj(output_3dcm, map_polygons);
+//  write_obj(output_3dcm, map_polygons);
   
   return 0;
 }
