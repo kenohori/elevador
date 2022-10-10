@@ -12,6 +12,7 @@
 #include <CGAL/Point_set_3.h>
 #include <CGAL/random_simplify_point_set.h>
 #include <CGAL/wlop_simplify_and_regularize_point_set.h>
+#include <CGAL/jet_smooth_point_set.h>
 #include "Quadtree.h"
 
 #include <ogrsf_frmts.h>
@@ -387,20 +388,46 @@ int create_terrain_tin(std::vector<Polygon> &map_polygons, Point_cloud &point_cl
   Point_cloud terrain_point_cloud = point_cloud;
   
   // Remove points from undesirable classes
-//  for (auto &polygon: map_polygons) {
-//    if (polygon.cityjson_class == "Building" ||
-//        polygon.cityjson_class == "WaterBody") {
-//      std::vector<Index *> intersected_nodes;
-//      index.find_intersections(intersected_nodes, polygon.x_min, polygon.x_max, polygon.y_min, polygon.y_max);
-//      for (auto const &node: intersected_nodes) {
-//        for (auto const &point_index: node->points) {
-//          Triangulation::Face_handle face = polygon.triangulation.locate(Kernel::Point_2(point_cloud.point(point_index).x(),
-//                                                                                         point_cloud.point(point_index).y()));
-//          if (!polygon.triangulation.is_infinite(face) && face->info().interior) terrain_point_cloud.remove(point_index);
-//        }
-//      }
-//    }
-//  } std::cout << "Used map polygons to remove " << terrain_point_cloud.garbage_size() << " points from terrain point cloud" << std::endl;
+  for (auto &polygon: map_polygons) {
+    if (polygon.cityjson_class == "Building" ||
+        polygon.cityjson_class == "WaterBody") {
+      std::vector<Index *> intersected_nodes;
+      index.find_intersections(intersected_nodes, polygon.x_min, polygon.x_max, polygon.y_min, polygon.y_max);
+      for (auto const &node: intersected_nodes) {
+        for (auto const &point_index: node->points) {
+          Triangulation::Face_handle face = polygon.triangulation.locate(Kernel::Point_2(point_cloud.point(point_index).x(),
+                                                                                         point_cloud.point(point_index).y()));
+          if (!polygon.triangulation.is_infinite(face) && face->info().interior) terrain_point_cloud.remove(point_index);
+        }
+      }
+    }
+  } std::cout << "Used map polygons to remove " << terrain_point_cloud.garbage_size() << " points from terrain point cloud" << std::endl;
+  
+  // Rough DTM using nearby low points
+  Point_cloud simplified_point_cloud;
+  const Kernel::FT cell_size = 10.0;
+  const Kernel::FT ratio_to_use = 0.01;
+  for (Kernel::FT x = index.x_min+0.5*cell_size; x < index.x_max; x += cell_size) {
+    for (Kernel::FT y = index.y_min+0.5*cell_size; y < index.y_max; y += cell_size) {
+      std::vector<Index *> intersected_nodes;
+      index.find_intersections(intersected_nodes, x-0.5*cell_size, x+0.5*cell_size, y-0.5*cell_size, y+0.5*cell_size);
+      std::vector<Kernel::FT> elevations;
+      for (auto const &node: intersected_nodes) {
+        for (auto const &point_index: node->points) {
+          if (!terrain_point_cloud.is_removed(point_index) &&
+              point_cloud.point(point_index).x() >= x-0.5*cell_size &&
+              point_cloud.point(point_index).x() <= x+0.5*cell_size &&
+              point_cloud.point(point_index).y() >= y-0.5*cell_size &&
+              point_cloud.point(point_index).y() <= y+0.5*cell_size) {
+            elevations.push_back(point_cloud.point(point_index).z());
+          }
+        }
+      } if (!elevations.empty()) {
+        std::sort(elevations.begin(), elevations.end());
+        simplified_point_cloud.insert(Kernel::Point_3(x, y, elevations[std::floor(ratio_to_use*elevations.size())]));
+      }
+    }
+  } terrain_point_cloud = simplified_point_cloud;
   
   // Simplify (random)
 //  Point_cloud::iterator first_point_to_remove = CGAL::random_simplify_point_set(terrain_point_cloud, 99.0);
@@ -416,32 +443,10 @@ int create_terrain_tin(std::vector<Polygon> &map_polygons, Point_cloud &point_cl
 //                                                                neighbor_radius(neighbour_radius));
 //  terrain_point_cloud = simplified_point_cloud;
   
-  // Simplify using 2D grid
-  Point_cloud simplified_point_cloud;
-  const Kernel::FT cell_size = 5.0;
-  const Kernel::FT ratio_to_use = 0.1;
-  for (Kernel::FT x = index.x_min+0.5*cell_size; x < index.x_max; x += cell_size) {
-    for (Kernel::FT y = index.y_min+0.5*cell_size; y < index.y_max; y += cell_size) {
-      std::vector<Index *> intersected_nodes;
-      index.find_intersections(intersected_nodes, x-0.5*cell_size, x+0.5*cell_size, y-0.5*cell_size, y+0.5*cell_size);
-      std::vector<Kernel::FT> elevations;
-      for (auto const &node: intersected_nodes) {
-        for (auto const &point_index: node->points) {
-          if (point_cloud.point(point_index).x() >= x-0.5*cell_size &&
-              point_cloud.point(point_index).x() <= x+0.5*cell_size &&
-              point_cloud.point(point_index).y() >= y-0.5*cell_size &&
-              point_cloud.point(point_index).y() <= y+0.5*cell_size) {
-            elevations.push_back(point_cloud.point(point_index).z());
-          }
-        }
-      } if (!elevations.empty()) {
-        std::sort(elevations.begin(), elevations.end());
-        simplified_point_cloud.insert(Kernel::Point_3(x, y, elevations[std::floor(ratio_to_use*elevations.size())]));
-      }
-    }
-  } terrain_point_cloud = simplified_point_cloud;
-  
   std::cout << "Simplified point cloud to " << terrain_point_cloud.number_of_points() << " points" << std::endl;
+  
+  // Smoothen
+//  CGAL::jet_smooth_point_set<Concurrency_tag>(terrain_point_cloud, neighbours);
   
   // Create TIN
   Triangulation terrain_triangulation;
