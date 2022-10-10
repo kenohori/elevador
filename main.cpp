@@ -383,9 +383,9 @@ int index_point_cloud(Point_cloud &point_cloud, Index &index) {
   return 0;
 }
 
-int create_terrain_tin(std::vector<Polygon> &map_polygons, Point_cloud &point_cloud, Index &index) {
+int create_terrain_tin(std::vector<Polygon> &map_polygons, Point_cloud &point_cloud, Index &index, Point_cloud &terrain_point_cloud) {
   clock_t start_time = clock();
-  Point_cloud terrain_point_cloud = point_cloud;
+  terrain_point_cloud = point_cloud;
   
   // Remove points from undesirable classes
   for (auto &polygon: map_polygons) {
@@ -404,49 +404,58 @@ int create_terrain_tin(std::vector<Polygon> &map_polygons, Point_cloud &point_cl
   } std::cout << "Used map polygons to remove " << terrain_point_cloud.garbage_size() << " points from terrain point cloud" << std::endl;
   
   // Rough DTM using nearby low points
-  Point_cloud simplified_point_cloud;
-  const Kernel::FT cell_size = 10.0;
-  const Kernel::FT ratio_to_use = 0.01;
-  for (Kernel::FT x = index.x_min+0.5*cell_size; x < index.x_max; x += cell_size) {
-    for (Kernel::FT y = index.y_min+0.5*cell_size; y < index.y_max; y += cell_size) {
+  Point_cloud dtm_point_cloud;
+  const Kernel::FT dtm_cell_size = 5.0;
+  const Kernel::FT dtm_ratio_to_use = 0.05;
+  for (Kernel::FT x = index.x_min+0.5*dtm_cell_size; x < index.x_max; x += dtm_cell_size) {
+    for (Kernel::FT y = index.y_min+0.5*dtm_cell_size; y < index.y_max; y += dtm_cell_size) {
       std::vector<Index *> intersected_nodes;
-      index.find_intersections(intersected_nodes, x-0.5*cell_size, x+0.5*cell_size, y-0.5*cell_size, y+0.5*cell_size);
+      index.find_intersections(intersected_nodes, x-0.5*dtm_cell_size, x+0.5*dtm_cell_size, y-0.5*dtm_cell_size, y+0.5*dtm_cell_size);
       std::vector<Kernel::FT> elevations;
       for (auto const &node: intersected_nodes) {
         for (auto const &point_index: node->points) {
           if (!terrain_point_cloud.is_removed(point_index) &&
-              point_cloud.point(point_index).x() >= x-0.5*cell_size &&
-              point_cloud.point(point_index).x() <= x+0.5*cell_size &&
-              point_cloud.point(point_index).y() >= y-0.5*cell_size &&
-              point_cloud.point(point_index).y() <= y+0.5*cell_size) {
+              point_cloud.point(point_index).x() >= x-0.5*dtm_cell_size &&
+              point_cloud.point(point_index).x() <= x+0.5*dtm_cell_size &&
+              point_cloud.point(point_index).y() >= y-0.5*dtm_cell_size &&
+              point_cloud.point(point_index).y() <= y+0.5*dtm_cell_size) {
             elevations.push_back(point_cloud.point(point_index).z());
           }
         }
       } if (!elevations.empty()) {
         std::sort(elevations.begin(), elevations.end());
-        simplified_point_cloud.insert(Kernel::Point_3(x, y, elevations[std::floor(ratio_to_use*elevations.size())]));
+        dtm_point_cloud.insert(Kernel::Point_3(x, y, elevations[std::floor(dtm_ratio_to_use*elevations.size())]));
       }
     }
-  } terrain_point_cloud = simplified_point_cloud;
+  } std::cout << "Created rough DTM with " << dtm_point_cloud.number_of_points() << " points" << std::endl;
   
-  // Simplify (random)
-//  Point_cloud::iterator first_point_to_remove = CGAL::random_simplify_point_set(terrain_point_cloud, 99.0);
-//  terrain_point_cloud.remove(first_point_to_remove, terrain_point_cloud.end());
-//  std::cout << terrain_point_cloud.size() << " points in terrain point cloud" << std::endl;
-  
-  // Simplify (WLOP)
-//  Point_cloud simplified_point_cloud;
-//  const double retain_percentage = 0.1;
-//  const double neighbour_radius = 5.0;
-//  CGAL::wlop_simplify_and_regularize_point_set<Concurrency_tag>(terrain_point_cloud, simplified_point_cloud.point_back_inserter(),
-//                                                                CGAL::parameters::select_percentage(retain_percentage).
-//                                                                neighbor_radius(neighbour_radius));
-//  terrain_point_cloud = simplified_point_cloud;
-  
-  std::cout << "Simplified point cloud to " << terrain_point_cloud.number_of_points() << " points" << std::endl;
+  // Index DTM
+  Index dtm_index;
+  index_point_cloud(dtm_point_cloud, dtm_index);
   
   // Smoothen
-//  CGAL::jet_smooth_point_set<Concurrency_tag>(terrain_point_cloud, neighbours);
+  Point_cloud smooth_dtm_point_cloud;
+  const Kernel::FT smoothing_radius = 25.0;
+  Kernel::FT squared_radius = smoothing_radius*smoothing_radius;
+  for (Point_cloud::const_iterator dtm_point_index = dtm_point_cloud.begin(); dtm_point_index != dtm_point_cloud.end(); ++dtm_point_index) {
+    std::vector<Index *> intersected_nodes;
+    dtm_index.find_intersections(intersected_nodes,
+                                 dtm_point_cloud.point(*dtm_point_index).x()-smoothing_radius, dtm_point_cloud.point(*dtm_point_index).x()+smoothing_radius,
+                                 dtm_point_cloud.point(*dtm_point_index).y()-smoothing_radius, dtm_point_cloud.point(*dtm_point_index).y()+smoothing_radius);
+    Kernel::FT sum_of_elevations = 0.0;
+    std::size_t points_within_radius = 0;
+    for (auto const &node: intersected_nodes) {
+      for (auto const &nearby_point_index: node->points) {
+        Kernel::FT squared_distance = (dtm_point_cloud.point(nearby_point_index).x()-dtm_point_cloud.point(*dtm_point_index).x())*(dtm_point_cloud.point(nearby_point_index).x()-dtm_point_cloud.point(*dtm_point_index).x()) + (dtm_point_cloud.point(nearby_point_index).y()-dtm_point_cloud.point(*dtm_point_index).y())*(dtm_point_cloud.point(nearby_point_index).y()-dtm_point_cloud.point(*dtm_point_index).y());
+        if (squared_distance <= squared_radius) {
+          sum_of_elevations += dtm_point_cloud.point(nearby_point_index).z();
+          ++points_within_radius;
+        }
+      }
+    } smooth_dtm_point_cloud.insert(Kernel::Point_3(dtm_point_cloud.point(*dtm_point_index).x(),
+                                                    dtm_point_cloud.point(*dtm_point_index).y(),
+                                                    sum_of_elevations/points_within_radius));
+  } terrain_point_cloud = smooth_dtm_point_cloud;
   
   // Create TIN
   Triangulation terrain_triangulation;
@@ -624,7 +633,7 @@ int main(int argc, const char * argv[]) {
   
   std::vector<Polygon> map_polygons;
   std::unordered_map<Kernel::Point_2, std::set<std::size_t>> points_index;
-  Point_cloud point_cloud;
+  Point_cloud point_cloud, terrain_point_cloud;
   Index index;
   
   load_map(input_map, map_polygons);
@@ -632,7 +641,7 @@ int main(int argc, const char * argv[]) {
   index_polygons(map_polygons, points_index);
   load_point_cloud(input_point_cloud, point_cloud);
   index_point_cloud(point_cloud, index);
-  create_terrain_tin(map_polygons, point_cloud, index);
+  create_terrain_tin(map_polygons, point_cloud, index, terrain_point_cloud);
 //  lift_flat_polygons(map_polygons, "Building", point_cloud, index, 0.7);
 //  lift_polygon_vertices(map_polygons, "Road", 5.0, point_cloud, index, 0.0);
 //  lift_polygon_vertices(map_polygons, "Railway", 5.0, point_cloud, index, 0.0);
