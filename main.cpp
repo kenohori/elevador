@@ -27,8 +27,8 @@ typedef CGAL::Exact_predicates_tag Tag;
 struct Vertex_info;
 typedef CGAL::Triangulation_vertex_base_with_info_2<Vertex_info, Kernel> Vertex_base;
 typedef CGAL::Constrained_triangulation_face_base_2<Kernel> Face_base;
-struct FaceInfo;
-typedef CGAL::Triangulation_face_base_with_info_2<FaceInfo, Kernel, Face_base> Face_base_with_info;
+struct Face_info;
+typedef CGAL::Triangulation_face_base_with_info_2<Face_info, Kernel, Face_base> Face_base_with_info;
 typedef CGAL::Triangulation_data_structure_2<Vertex_base, Face_base_with_info> Triangulation_data_structure;
 typedef CGAL::Constrained_Delaunay_triangulation_2<Kernel, Triangulation_data_structure, Tag> Constrained_delaunay_triangulation;
 typedef Enhanced_constrained_triangulation_2<Constrained_delaunay_triangulation> Triangulation;
@@ -42,10 +42,10 @@ struct Vertex_info {
   }
 };
 
-struct FaceInfo {
+struct Face_info {
   bool processed;
   bool interior;
-  FaceInfo() {
+  Face_info() {
     processed = false;
     interior = false;
   }
@@ -61,6 +61,22 @@ struct Polygon {
   Triangulation triangulation;
   std::string cityjson_class;
   Kernel::FT x_min, x_max, y_min, y_max;
+};
+
+struct Vertex_in_triangulation_handle {
+  std::vector<Polygon>::iterator map_polygon;
+  Triangulation::Vertex_handle vertex;
+  Vertex_in_triangulation_handle(std::vector<Polygon>::iterator map_polygon, Triangulation::Vertex_handle vertex) {
+    this->map_polygon = map_polygon;
+    this->vertex = vertex;
+  }
+  bool operator<(const Vertex_in_triangulation_handle other) const {
+    return this->vertex->info().z < other.vertex->info().z;
+  }
+};
+
+struct Points_index {
+  std::unordered_map<Kernel::Point_2, std::set<Vertex_in_triangulation_handle>> index;
 };
 
 void printTimer(clock_t &start_time) {
@@ -276,16 +292,16 @@ int triangulate_polygons(std::vector<Polygon> &map_polygons) {
   return 0;
 }
 
-int index_polygons(std::vector<Polygon> &map_polygons, std::unordered_map<Kernel::Point_2, std::set<std::size_t>> &points_index) {
+int index_polygons(std::vector<Polygon> &map_polygons, Points_index &points_index) {
   
   // Compute bounds and index boundary vertices of repaired polygons
   clock_t start_time = clock();
-  for (std::size_t current_polygon = 0; current_polygon < map_polygons.size(); ++current_polygon) {
+  for (std::vector<Polygon>::iterator current_polygon = map_polygons.begin(); current_polygon != map_polygons.end(); ++current_polygon) {
     bool first_boundary_point = true;
-    for (auto vertex: map_polygons[current_polygon].triangulation.finite_vertex_handles()) {
+    for (auto current_vertex: current_polygon->triangulation.finite_vertex_handles()) {
       bool incident_to_interior = false;
       bool incident_to_exterior = false;
-      Triangulation::Face_circulator first_face = map_polygons[current_polygon].triangulation.incident_faces(vertex);
+      Triangulation::Face_circulator first_face = current_polygon->triangulation.incident_faces(current_vertex);
       Triangulation::Face_circulator current_face = first_face;
       do {
         if (current_face->info().interior) incident_to_interior = true;
@@ -293,18 +309,18 @@ int index_polygons(std::vector<Polygon> &map_polygons, std::unordered_map<Kernel
         ++current_face;
       } while (current_face != first_face);
       if (incident_to_interior && incident_to_exterior) {
-        points_index[vertex->point()].insert(current_polygon);
+        points_index.index[current_vertex->point()].insert(Vertex_in_triangulation_handle(current_polygon, current_vertex));
         if (first_boundary_point) {
-          map_polygons[current_polygon].x_min = vertex->point().x();
-          map_polygons[current_polygon].x_max = vertex->point().x();
-          map_polygons[current_polygon].y_min = vertex->point().y();
-          map_polygons[current_polygon].y_max = vertex->point().y();
+          current_polygon->x_min = current_vertex->point().x();
+          current_polygon->x_max = current_vertex->point().x();
+          current_polygon->y_min = current_vertex->point().y();
+          current_polygon->y_max = current_vertex->point().y();
           first_boundary_point = false;
         } else {
-          if (vertex->point().x() < map_polygons[current_polygon].x_min) map_polygons[current_polygon].x_min = vertex->point().x();
-          if (vertex->point().x() > map_polygons[current_polygon].x_max) map_polygons[current_polygon].x_max = vertex->point().x();
-          if (vertex->point().y() < map_polygons[current_polygon].y_min) map_polygons[current_polygon].y_min = vertex->point().y();
-          if (vertex->point().y() > map_polygons[current_polygon].y_max) map_polygons[current_polygon].y_max = vertex->point().y();
+          if (current_vertex->point().x() < current_polygon->x_min) current_polygon->x_min = current_vertex->point().x();
+          if (current_vertex->point().x() > current_polygon->x_max) current_polygon->x_max = current_vertex->point().x();
+          if (current_vertex->point().y() < current_polygon->y_min) current_polygon->y_min = current_vertex->point().y();
+          if (current_vertex->point().y() > current_polygon->y_max) current_polygon->y_max = current_vertex->point().y();
         }
       }
     }
@@ -322,7 +338,7 @@ int index_polygons(std::vector<Polygon> &map_polygons, std::unordered_map<Kernel
     if (polygon.y_max > y_max) y_max = polygon.y_max;
   } // std::cout << "Map extent: X = [" << x_min << ", " << x_max << "] Y = [" << y_min << ", " << y_max << "]" << std::endl;
   
-  std::cout << "Indexed " << points_index.size() << " polygon triangulation boundary points in ";
+  std::cout << "Indexed " << points_index.index.size() << " polygon triangulation boundary points in ";
   printTimer(start_time);
   std::cout << " using ";
   printMemoryUsage();
@@ -562,21 +578,21 @@ int lift_polygon_vertices(std::vector<Polygon> &map_polygons, const char *cityjs
   return 0;
 }
 
-int write_3dcm_obj(const char *output_3dcm, std::vector<Polygon> &map_polygons, std::unordered_map<Kernel::Point_2, std::set<std::size_t>> &points_index) {
+int write_3dcm_obj(const char *output_3dcm, std::vector<Polygon> &map_polygons, Points_index &points_index) {
   clock_t start_time = clock();
   std::ofstream output_stream;
   output_stream.open(output_3dcm);
   output_stream << "mtllib ./elevador.mtl" << std::endl;
   std::unordered_map<Kernel::Point_3, std::size_t> output_vertices;
   std::string output_objects;
-  std::size_t num_faces = 0;
-  for (std::size_t current_polygon = 0; current_polygon < map_polygons.size(); ++current_polygon) {
+  std::size_t num_polygons = 0, num_faces = 0;
+  for (std::vector<Polygon>::iterator current_polygon = map_polygons.begin(); current_polygon != map_polygons.end(); ++current_polygon) {
     
     // Faces in polygon triangulation
-    output_objects += "o " + std::to_string(current_polygon) + "\n";
-    output_objects += "usemtl " + map_polygons[current_polygon].cityjson_class + "\n";
-    for (Triangulation::Finite_faces_iterator current_face = map_polygons[current_polygon].triangulation.finite_faces_begin();
-         current_face != map_polygons[current_polygon].triangulation.finite_faces_end();
+    output_objects += "o " + std::to_string(num_polygons) + "\n";
+    output_objects += "usemtl " + current_polygon->cityjson_class + "\n";
+    for (Triangulation::Finite_faces_iterator current_face = current_polygon->triangulation.finite_faces_begin();
+         current_face != current_polygon->triangulation.finite_faces_end();
          ++current_face) {
       if (current_face->info().interior == false) continue;
       std::vector<std::size_t> face_vertices;
@@ -596,28 +612,32 @@ int write_3dcm_obj(const char *output_3dcm, std::vector<Polygon> &map_polygons, 
     
     // Vertical walls
 //    bool first_wall = true;
-//    for (auto const &edge: map_polygons[current_polygon].triangulation.constrained_edges()) {
+//    for (auto const &edge: current_polygon->triangulation.constrained_edges()) {
 //      Triangulation::Vertex_handle v1 = edge.first->vertex(edge.first->cw(edge.second));
 //      Triangulation::Vertex_handle v2 = edge.first->vertex(edge.first->ccw(edge.second));
-//      std::set<Kernel::FT> v1_elevations, v2_elevations;
-//      for (auto const &polygon_index: points_index[v1->point()]) {
+//      std::set<Vertex_in_triangulation_handle> v1_elevations, v2_elevations;
+//      for (auto const &polygon_index: points_index.index[v1->point()]) {
 //        Triangulation::Locate_type locate_type;
 //        int index_of_vertex;
-//        Triangulation::Face_handle face_incident_to_v1 = map_polygons[polygon_index].triangulation.locate(v1->point(), locate_type, index_of_vertex);
-//        if (locate_type == Triangulation::VERTEX) v1_elevations.insert(face_incident_to_v1->vertex(index_of_vertex)->info().z);
-//      } for (auto const &polygon_index: points_index[v2->point()]) {
+//        Triangulation::Face_handle face_incident_to_v1 = current_polygon->triangulation.locate(v1->point(), locate_type, index_of_vertex);
+//        if (locate_type == Triangulation::VERTEX) v1_elevations.insert(Vertex_in_triangulation_handle(current_polygon, face_incident_to_v1->vertex(index_of_vertex)));
+//      } for (auto const &polygon_index: points_index.index[v2->point()]) {
 //        Triangulation::Locate_type locate_type;
 //        int index_of_vertex;
-//        Triangulation::Face_handle face_incident_to_v2 = map_polygons[polygon_index].triangulation.locate(v2->point(), locate_type, index_of_vertex);
-//        if (locate_type == Triangulation::VERTEX) v2_elevations.insert(face_incident_to_v2->vertex(index_of_vertex)->info().z);
+//        Triangulation::Face_handle face_incident_to_v2 = current_polygon->triangulation.locate(v2->point(), locate_type, index_of_vertex);
+//        if (locate_type == Triangulation::VERTEX) v2_elevations.insert(Vertex_in_triangulation_handle(current_polygon, face_incident_to_v2->vertex(index_of_vertex)));
 //      } if (v1_elevations.size() > 1 && v2_elevations.size() > 1) {
-////        std::cout << "Edge with " << v1_elevations.size() << " elevations at v1 and " << v2_elevations.size() << " elevations at v2" << std::endl;
+//        std::cout << "Edge with " << v1_elevations.size() << " elevations at v1 and " << v2_elevations.size() << " elevations at v2" << std::endl;
 //        if (first_wall) {
-//
+//          output_objects += "usemtl Wall\n";
+//          first_wall = false;
+//        } if (v1_elevations.size() == 1) {
+//          output_objects += "f " + std::to_string(<#int __val#>);
 //        }
 //      }
 //    }
     
+  ++num_polygons;
   } output_stream << output_objects;
   output_stream.close();
   std::cout << "Wrote 3D city model in ";
@@ -666,7 +686,9 @@ int main(int argc, const char * argv[]) {
   const char *output_3dcm = "/Users/ken/Downloads/exeter.obj";
   
   std::vector<Polygon> map_polygons;
-  std::unordered_map<Kernel::Point_2, std::set<std::size_t>> points_index;
+//  std::unordered_map<Kernel::Point_2, std::set<std::size_t>> points_index;
+//  std::unordered_map<Kernel::Point_2, std::pair<std::vector<Polygon>::iterator, Triangulation::Vertex_handle>> points_index;
+  Points_index points_index;
   Point_cloud point_cloud;
   Index index;
   Triangulation terrain;
@@ -677,7 +699,7 @@ int main(int argc, const char * argv[]) {
   load_point_cloud(input_point_cloud, point_cloud);
   index_point_cloud(point_cloud, index);
   create_terrain_tin(map_polygons, point_cloud, index, terrain);
-//  write_terrain_obj("/Users/ken/Downloads/terrain.obj", terrain);
+  write_terrain_obj("/Users/ken/Downloads/terrain.obj", terrain);
   lift_flat_polygons(map_polygons, "Building", point_cloud, index, 0.7);
   lift_polygon_vertices(map_polygons, "Road", terrain);
   lift_polygon_vertices(map_polygons, "Railway", terrain);
