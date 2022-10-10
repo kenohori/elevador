@@ -590,9 +590,7 @@ int write_3dcm_obj(const char *output_3dcm, std::vector<Polygon> &map_polygons, 
         } else {
           face_vertices.push_back(vertex->second);
         }
-        
-      }
-      output_objects += "f " + std::to_string(face_vertices[0]) + " " + std::to_string(face_vertices[1]) + " " + std::to_string(face_vertices[2]) + "\n";
+      } output_objects += "f " + std::to_string(face_vertices[0]) + " " + std::to_string(face_vertices[1]) + " " + std::to_string(face_vertices[2]) + "\n";
       ++num_faces;
     }
     
@@ -633,13 +631,24 @@ int write_terrain_obj(const char *output_terrain, Triangulation &terrain) {
   clock_t start_time = clock();
   std::ofstream output_stream;
   output_stream.open(output_terrain);
+  std::unordered_map<Kernel::Point_3, std::size_t> output_vertices;
   std::string output_objects;
   std::size_t num_faces = 0;
   for (Triangulation::Finite_faces_iterator current_face = terrain.finite_faces_begin();
        current_face != terrain.finite_faces_end();
        ++current_face) {
-    for (int v = 0; v < 3; ++v) output_stream << "v " << current_face->vertex(v)->point().x() << " " << current_face->vertex(v)->point().y() << " " << current_face->vertex(v)->info().z << "\n";
-    output_objects += "f " + std::to_string(3*num_faces+1) + " " + std::to_string(3*num_faces+2) + " " + std::to_string(3*num_faces+3) + "\n";
+    std::vector<std::size_t> face_vertices;
+    for (int v = 0; v < 3; ++v) {
+      Kernel::Point_3 point(current_face->vertex(v)->point().x(), current_face->vertex(v)->point().y(), current_face->vertex(v)->info().z);
+      std::unordered_map<Kernel::Point_3, std::size_t>::iterator vertex = output_vertices.find(point);
+      if (vertex == output_vertices.end()) {
+        output_stream << "v " << point.x() << " " << point.y() << " " << point.z() << "\n";
+        face_vertices.push_back(output_vertices.size()+1);
+        output_vertices[point] = output_vertices.size()+1;
+      } else {
+        face_vertices.push_back(vertex->second);
+      }
+    } output_objects += "f " + std::to_string(face_vertices[0]) + " " + std::to_string(face_vertices[1]) + " " + std::to_string(face_vertices[2]) + "\n";
     ++num_faces;
   } output_stream << output_objects;
   output_stream.close();
@@ -668,13 +677,13 @@ int main(int argc, const char * argv[]) {
   load_point_cloud(input_point_cloud, point_cloud);
   index_point_cloud(point_cloud, index);
   create_terrain_tin(map_polygons, point_cloud, index, terrain);
-  write_terrain_obj("/Users/ken/Downloads/terrain.obj", terrain);
-//  lift_flat_polygons(map_polygons, "Building", point_cloud, index, 0.7);
-//  lift_polygon_vertices(map_polygons, "Road", terrain);
-//  lift_polygon_vertices(map_polygons, "Railway", terrain);
+//  write_terrain_obj("/Users/ken/Downloads/terrain.obj", terrain);
+  lift_flat_polygons(map_polygons, "Building", point_cloud, index, 0.7);
+  lift_polygon_vertices(map_polygons, "Road", terrain);
+  lift_polygon_vertices(map_polygons, "Railway", terrain);
 //  lift_polygon_vertices(map_polygons, "PlantCover", terrain);
 //  lift_polygon_vertices(map_polygons, "LandUse", terrain);
-//  write_3dcm_obj(output_3dcm, map_polygons, points_index);
+  write_3dcm_obj(output_3dcm, map_polygons, points_index);
   
   return 0;
 }
