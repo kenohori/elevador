@@ -33,7 +33,6 @@ typedef CGAL::Triangulation_data_structure_2<Vertex_base, Face_base_with_info> T
 typedef CGAL::Constrained_Delaunay_triangulation_2<Kernel, Triangulation_data_structure, Tag> Constrained_delaunay_triangulation;
 typedef Enhanced_constrained_triangulation_2<Constrained_delaunay_triangulation> Triangulation;
 typedef CGAL::Point_set_3<Kernel::Point_3> Point_cloud;
-typedef CGAL::Parallel_if_available_tag Concurrency_tag;
 typedef Quadtree<Kernel, Point_cloud> Index;
 
 struct Vertex_info {
@@ -399,28 +398,30 @@ int create_terrain_tin(std::vector<Polygon> &map_polygons, Point_cloud &point_cl
         }
       }
     }
-  } std::cout << "Used map polygons to remove " << terrain_point_cloud.garbage_size() << " points from terrain point cloud" << std::endl;
+  } // std::cout << "Used map polygons to remove " << terrain_point_cloud.garbage_size() << " points from terrain point cloud" << std::endl;
   
-  // Rough DTM using nearby low points
+  // Create grid DTM using nearby low points
   Point_cloud dtm_point_cloud;
   const Kernel::FT dtm_cell_size = 5.0;
-  const Kernel::FT dtm_ratio_to_use = 0.05;
-  for (Kernel::FT x = index.x_min; x < index.x_max; x += dtm_cell_size) {
-    for (Kernel::FT y = index.y_min; y < index.y_max; y += dtm_cell_size) {
+  const Kernel::FT dtm_search_radius = 25.0;
+  const Kernel::FT dtm_ratio_to_use = 0.01;
+  const std::size_t minimum_points_in_grid = 100;
+  Kernel::FT squared_search_radius = dtm_search_radius*dtm_search_radius;
+  for (Kernel::FT x = index.x_min-0.5*dtm_cell_size; x < index.x_max+0.5*dtm_cell_size; x += dtm_cell_size) {
+    for (Kernel::FT y = index.y_min-0.5*dtm_cell_size; y < index.y_max+0.5*dtm_cell_size; y += dtm_cell_size) {
       std::vector<Index *> intersected_nodes;
-      index.find_intersections(intersected_nodes, x-0.5*dtm_cell_size, x+0.5*dtm_cell_size, y-0.5*dtm_cell_size, y+0.5*dtm_cell_size);
+      index.find_intersections(intersected_nodes, x-0.5*dtm_search_radius, x+0.5*dtm_search_radius, y-0.5*dtm_search_radius, y+0.5*dtm_search_radius);
       std::vector<Kernel::FT> elevations;
       for (auto const &node: intersected_nodes) {
         for (auto const &point_index: node->points) {
+          Kernel::FT squared_2d_distance = (point_cloud.point(point_index).x()-x)*(point_cloud.point(point_index).x()-x) +
+                                           (point_cloud.point(point_index).y()-y)*(point_cloud.point(point_index).y()-y);
           if (!terrain_point_cloud.is_removed(point_index) &&
-              point_cloud.point(point_index).x() >= x-0.5*dtm_cell_size &&
-              point_cloud.point(point_index).x() <= x+0.5*dtm_cell_size &&
-              point_cloud.point(point_index).y() >= y-0.5*dtm_cell_size &&
-              point_cloud.point(point_index).y() <= y+0.5*dtm_cell_size) {
+              squared_2d_distance < squared_search_radius) {
             elevations.push_back(point_cloud.point(point_index).z());
           }
         }
-      } if (!elevations.empty()) {
+      } if (elevations.size() > minimum_points_in_grid) {
         std::sort(elevations.begin(), elevations.end());
         dtm_point_cloud.insert(Kernel::Point_3(x, y, elevations[std::floor(dtm_ratio_to_use*elevations.size())]));
       }
@@ -431,38 +432,42 @@ int create_terrain_tin(std::vector<Polygon> &map_polygons, Point_cloud &point_cl
   Index dtm_index;
   index_point_cloud(dtm_point_cloud, dtm_index);
   
-  // Smoothen
+  // Smoothen using IDW
   Point_cloud smooth_dtm_point_cloud;
-  const Kernel::FT smoothing_radius = 50.0;
-  Kernel::FT squared_radius = smoothing_radius*smoothing_radius;
-  for (Kernel::FT x = index.x_min-0.5*dtm_cell_size; x < index.x_max+0.5*dtm_cell_size; x += dtm_cell_size) {
-    for (Kernel::FT y = index.y_min-0.5*dtm_cell_size; y < index.y_max+0.5*dtm_cell_size; y += dtm_cell_size) {
-      
+  const Kernel::FT smoothing_radius = 25.0;
+  Kernel::FT squared_smoothing_radius = smoothing_radius*smoothing_radius;
+  for (Kernel::FT x = index.x_min-dtm_cell_size; x < index.x_max+dtm_cell_size; x += dtm_cell_size) {
+    for (Kernel::FT y = index.y_min-dtm_cell_size; y < index.y_max+dtm_cell_size; y += dtm_cell_size) {
+
       std::vector<Index *> intersected_nodes;
       dtm_index.find_intersections(intersected_nodes, x-smoothing_radius, x+smoothing_radius, y-smoothing_radius, y+smoothing_radius);
-      Kernel::FT sum_of_elevations = 0.0;
-      std::size_t points_within_radius = 0;
+      Kernel::FT sum_of_weighted_elevations = 0.0;
+      Kernel::FT sum_of_weights = 0.0;
+      std::vector<Kernel::Point_2> points_within_radius;
       for (auto const &node: intersected_nodes) {
         for (auto const &point_index: node->points) {
           Kernel::FT squared_2d_distance = (dtm_point_cloud.point(point_index).x()-x)*(dtm_point_cloud.point(point_index).x()-x) +
                                            (dtm_point_cloud.point(point_index).y()-y)*(dtm_point_cloud.point(point_index).y()-y);
-          if (squared_2d_distance <= squared_radius) {
-            sum_of_elevations += dtm_point_cloud.point(point_index).z();
-            ++points_within_radius;
+          if (squared_2d_distance > 0.0 && squared_2d_distance <= squared_smoothing_radius) {
+            Kernel::FT weight = 1.0/squared_2d_distance;
+            sum_of_weighted_elevations += weight*dtm_point_cloud.point(point_index).z();
+            sum_of_weights += weight;
           }
         }
-      } if (points_within_radius > 0) {
-        smooth_dtm_point_cloud.insert(Kernel::Point_3(x, y, sum_of_elevations/points_within_radius));
+      } if (sum_of_weights > 0.0) {
+        smooth_dtm_point_cloud.insert(Kernel::Point_3(x, y, sum_of_weighted_elevations/sum_of_weights));
       }
     }
   }
   
-  // Create TIN
+  // Create TIN from grid
   terrain.clear();
   for (auto const &point: smooth_dtm_point_cloud.points()) {
     Triangulation::Vertex_handle vertex = terrain.insert(Kernel::Point_2(point.x(), point.y()));
     vertex->info().z = point.z();
   }
+  
+  // TODO: simplify
 
   std::cout << "Created terrain TIN with " << terrain.number_of_faces() << " triangles in ";
   printTimer(start_time);
@@ -556,11 +561,9 @@ int lift_polygon_vertices(std::vector<Polygon> &map_polygons, const char *cityjs
   std::cout << " using ";
   printMemoryUsage();
   return 0;
-  
-  return 0;
 }
 
-int write_3dcm_obj(const char *output_3dcm, std::vector<Polygon> &map_polygons) {
+int write_3dcm_obj(const char *output_3dcm, std::vector<Polygon> &map_polygons, std::unordered_map<Kernel::Point_2, std::set<std::size_t>> &points_index) {
   clock_t start_time = clock();
   std::ofstream output_stream;
   output_stream.open(output_3dcm);
@@ -568,6 +571,8 @@ int write_3dcm_obj(const char *output_3dcm, std::vector<Polygon> &map_polygons) 
   std::string output_objects;
   std::size_t num_faces = 0;
   for (std::size_t current_polygon = 0; current_polygon < map_polygons.size(); ++current_polygon) {
+    
+    // Faces in polygon triangulation
     output_objects += "o " + std::to_string(current_polygon) + "\n";
     output_objects += "usemtl " + map_polygons[current_polygon].cityjson_class + "\n";
     for (Triangulation::Finite_faces_iterator current_face = map_polygons[current_polygon].triangulation.finite_faces_begin();
@@ -578,6 +583,10 @@ int write_3dcm_obj(const char *output_3dcm, std::vector<Polygon> &map_polygons) 
       output_objects += "f " + std::to_string(3*num_faces+1) + " " + std::to_string(3*num_faces+2) + " " + std::to_string(3*num_faces+3) + "\n";
       ++num_faces;
     }
+    
+    // Vertical walls
+    
+    
   } output_stream << output_objects;
   output_stream.close();
   std::cout << "Wrote 3D city model in ";
@@ -626,13 +635,13 @@ int main(int argc, const char * argv[]) {
   load_point_cloud(input_point_cloud, point_cloud);
   index_point_cloud(point_cloud, index);
   create_terrain_tin(map_polygons, point_cloud, index, terrain);
-  write_terrain_obj("/Users/ken/Downloads/terrain.obj", terrain);
+//  write_terrain_obj("/Users/ken/Downloads/terrain.obj", terrain);
   lift_flat_polygons(map_polygons, "Building", point_cloud, index, 0.7);
   lift_polygon_vertices(map_polygons, "Road", terrain);
   lift_polygon_vertices(map_polygons, "Railway", terrain);
-  lift_polygon_vertices(map_polygons, "PlantCover", terrain);
-  lift_polygon_vertices(map_polygons, "LandUse", terrain);
-  write_3dcm_obj(output_3dcm, map_polygons);
+//  lift_polygon_vertices(map_polygons, "PlantCover", terrain);
+//  lift_polygon_vertices(map_polygons, "LandUse", terrain);
+  write_3dcm_obj(output_3dcm, map_polygons, points_index);
   
   return 0;
 }
