@@ -70,13 +70,13 @@ struct Polygon {
   Kernel::FT x_min, x_max, y_min, y_max;
 };
 
-void printTimer(clock_t &start_time) {
+void print_timer(clock_t &start_time) {
   clock_t stop_time = clock();
   double seconds = (stop_time-start_time)/(double)CLOCKS_PER_SEC;
   std::cout << std::to_string(seconds) + " seconds";
 }
 
-void printMemoryUsage() {
+void print_memory_usage() {
   struct task_basic_info t_info;
   mach_msg_type_number_t t_info_count = TASK_BASIC_INFO_COUNT;
   std::string usage;
@@ -158,9 +158,9 @@ int load_map(const char *input_map, std::vector<Polygon> &map_polygons) {
     
   } GDALClose(input_map_dataset);
   std::cout << "Loaded " << map_polygons.size() << " polygons in ";
-  printTimer(start_time);
+  print_timer(start_time);
   std::cout << " using ";
-  printMemoryUsage();
+  print_memory_usage();
   return 0;
 }
 
@@ -274,9 +274,9 @@ int triangulate_polygons(std::vector<Polygon> &map_polygons) {
     }
       
   } std::cout << "Repaired and triangulated " << map_polygons.size() << " polygons in ";
-  printTimer(start_time);
+  print_timer(start_time);
   std::cout << " using ";
-  printMemoryUsage();
+  print_memory_usage();
   return 0;
 }
 
@@ -341,9 +341,9 @@ int index_map_polygons(std::vector<Polygon> &map_polygons, Edge_index &edges_ind
   } // std::cout << "Map extent: X = [" << x_min << ", " << x_max << "] Y = [" << y_min << ", " << y_max << "]" << std::endl;
   
   std::cout << "Indexed " << edges_index.size() << " edges of " << map_polygons.size() << " polygons in ";
-  printTimer(start_time);
+  print_timer(start_time);
   std::cout << " using ";
-  printMemoryUsage();
+  print_memory_usage();
   return 0;
 }
 
@@ -372,9 +372,9 @@ int load_point_cloud(const char *input_point_cloud, Point_cloud &point_cloud) {
   // std::cout << "Point cloud extent: X = [" << las_header.minX() << ", " << las_header.maxX() << "] Y = [" << las_header.minY() << ", " << las_header.maxY() << "] Z = [" << las_header.minZ() << ", " << las_header.maxZ() << "]" << std::endl;
   
   std::cout << "Loaded " << las_header.pointCount() << " points in ";
-  printTimer(start_time);
+  print_timer(start_time);
   std::cout << " using ";
-  printMemoryUsage();
+  print_memory_usage();
   return 0;
 }
 
@@ -392,9 +392,9 @@ int index_point_cloud(Point_cloud &point_cloud, Point_index &index) {
   // Print quadtree info
 //  index.print_info();
   std::cout << "Indexed " << point_cloud.size() << " point cloud points in ";
-  printTimer(start_time);
+  print_timer(start_time);
   std::cout << " using ";
-  printMemoryUsage();
+  print_memory_usage();
   return 0;
 }
 
@@ -487,9 +487,9 @@ int create_terrain_tin(std::vector<Polygon> &map_polygons, Point_cloud &point_cl
   // TODO: simplify
 
   std::cout << "Created terrain TIN with " << terrain.number_of_faces() << " triangles in ";
-  printTimer(start_time);
+  print_timer(start_time);
   std::cout << " using ";
-  printMemoryUsage();
+  print_memory_usage();
   
   return 0;
 }
@@ -542,9 +542,9 @@ int lift_flat_polygons(std::vector<Polygon> &map_polygons, const char *cityjson_
   }
   
   std::cout << "Lifted " << n_polygons << " flat " << cityjson_class << " polygons in ";
-  printTimer(start_time);
+  print_timer(start_time);
   std::cout << " using ";
-  printMemoryUsage();
+  print_memory_usage();
   return 0;
 }
 
@@ -574,9 +574,9 @@ int lift_polygon_vertices(std::vector<Polygon> &map_polygons, const char *cityjs
   }
   
   std::cout << "Lifted " << n_vertices << " vertices of " << n_polygons << " " << cityjson_class << " polygons for in ";
-  printTimer(start_time);
+  print_timer(start_time);
   std::cout << " using ";
-  printMemoryUsage();
+  print_memory_usage();
   return 0;
 }
 
@@ -651,9 +651,9 @@ int lift_polygons(std::vector<Polygon> &map_polygons, const char *cityjson_class
     }
   }
   std::cout << "Lifted " << n_polygons << " " << cityjson_class << " polygons in ";
-  printTimer(start_time);
+  print_timer(start_time);
   std::cout << " using ";
-  printMemoryUsage();
+  print_memory_usage();
   return 0;
 }
 
@@ -683,9 +683,9 @@ int create_vertical_walls(std::vector<Polygon> &map_polygons, Edge_index &edge_i
 //  }
   
   std::cout << "Created vertical walls in ";
-  printTimer(start_time);
+  print_timer(start_time);
   std::cout << " using ";
-  printMemoryUsage();
+  print_memory_usage();
   return 0;
 }
 
@@ -755,9 +755,9 @@ int write_3dcm_obj(const char *output_3dcm, std::vector<Polygon> &map_polygons) 
   ++num_polygons;
   } output_stream.close();
   std::cout << "Wrote 3D city model in ";
-  printTimer(start_time);
+  print_timer(start_time);
   std::cout << " using ";
-  printMemoryUsage();
+  print_memory_usage();
   return 0;
 }
 
@@ -786,9 +786,9 @@ int write_terrain_obj(const char *output_terrain, Triangulation &terrain) {
     } output_stream << "\n";
   } output_stream.close();
   std::cout << "Wrote terrain in ";
-  printTimer(start_time);
+  print_timer(start_time);
   std::cout << " using ";
-  printMemoryUsage();
+  print_memory_usage();
   return 0;
 }
 
