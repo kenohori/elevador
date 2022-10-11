@@ -59,6 +59,7 @@ struct Polygon {
   Ring outer_ring;
   std::vector<Ring> inner_rings;
   Triangulation triangulation;
+  std::vector<std::tuple<Kernel::Point_3, Kernel::Point_3, Kernel::Point_3>> extra_triangles;
   std::string cityjson_class;
   Kernel::FT x_min, x_max, y_min, y_max;
 };
@@ -653,6 +654,38 @@ int lift_polygons(std::vector<Polygon> &map_polygons, const char *cityjson_class
   return 0;
 }
 
+int create_vertical_walls(std::vector<Polygon> &map_polygons, Points_index &points_index, Triangulation &terrain) {
+  clock_t start_time = clock();
+  
+  for (std::vector<Polygon>::iterator current_polygon = map_polygons.begin(); current_polygon != map_polygons.end(); ++current_polygon) {
+    for (auto const &edge: current_polygon->triangulation.constrained_edges()) {
+      Triangulation::Vertex_handle current_v1 = edge.first->vertex(edge.first->cw(edge.second));
+      Triangulation::Vertex_handle current_v2 = edge.first->vertex(edge.first->ccw(edge.second));
+      std::set<Kernel::FT> v1_elevations, v2_elevations;
+      for (auto const &vertex_in_triangulation: points_index.index[current_v1->point()]) v1_elevations.insert(vertex_in_triangulation.vertex->info().z);
+      for (auto const &vertex_in_triangulation: points_index.index[current_v2->point()]) v2_elevations.insert(vertex_in_triangulation.vertex->info().z);
+
+      // Vertical wall found
+      if (v1_elevations.size() == 2 && v2_elevations.size() == 2 &&
+        current_v1->info().z == *v1_elevations.rbegin() &&
+        current_v2->info().z == *v2_elevations.rbegin()) {
+        Kernel::Point_3 v1_top(current_v1->point().x(), current_v1->point().y(), *v1_elevations.rbegin());
+        Kernel::Point_3 v2_top(current_v2->point().x(), current_v2->point().y(), *v2_elevations.rbegin());
+        Kernel::Point_3 v1_bottom(current_v1->point().x(), current_v1->point().y(), *v1_elevations.begin());
+        Kernel::Point_3 v2_bottom(current_v2->point().x(), current_v2->point().y(), *v2_elevations.begin());
+        current_polygon->extra_triangles.push_back(std::tuple<Kernel::Point_3, Kernel::Point_3, Kernel::Point_3>(v1_top, v2_top, v1_bottom));
+        current_polygon->extra_triangles.push_back(std::tuple<Kernel::Point_3, Kernel::Point_3, Kernel::Point_3>(v2_bottom, v1_bottom, v2_top));
+      }
+    }
+  }
+  
+  std::cout << "Created vertical walls in ";
+  printTimer(start_time);
+  std::cout << " using ";
+  printMemoryUsage();
+  return 0;
+}
+
 int write_3dcm_obj(const char *output_3dcm, std::vector<Polygon> &map_polygons, Points_index &points_index) {
   clock_t start_time = clock();
   std::ofstream output_stream;
@@ -669,11 +702,21 @@ int write_3dcm_obj(const char *output_3dcm, std::vector<Polygon> &map_polygons, 
       if (current_face->info().interior == false) continue;
       for (int v = 0; v < 3; ++v) {
         Kernel::Point_3 point(current_face->vertex(v)->point().x(), current_face->vertex(v)->point().y(), current_face->vertex(v)->info().z);
-        std::unordered_map<Kernel::Point_3, std::size_t>::iterator vertex = output_vertices.find(point);
-        if (vertex == output_vertices.end()) {
+        if (output_vertices.count(point) == 0) {
           output_stream << "v " << point.x() << " " << point.y() << " " << point.z() << "\n";
           output_vertices[point] = output_vertices.size()+1;
         }
+      }
+    } for (auto const &triangle: current_polygon->extra_triangles) {
+      if (output_vertices.count(std::get<0>(triangle)) == 0) {
+        output_stream << "v " << std::get<0>(triangle).x() << " " << std::get<0>(triangle).y() << " " << std::get<0>(triangle).z() << "\n";
+        output_vertices[std::get<0>(triangle)] = output_vertices.size()+1;
+      } if (output_vertices.count(std::get<1>(triangle)) == 0) {
+        output_stream << "v " << std::get<1>(triangle).x() << " " << std::get<1>(triangle).y() << " " << std::get<1>(triangle).z() << "\n";
+        output_vertices[std::get<1>(triangle)] = output_vertices.size()+1;
+      } if (output_vertices.count(std::get<2>(triangle)) == 0) {
+        output_stream << "v " << std::get<2>(triangle).x() << " " << std::get<2>(triangle).y() << " " << std::get<2>(triangle).z() << "\n";
+        output_vertices[std::get<2>(triangle)] = output_vertices.size()+1;
       }
     }
   }
@@ -681,7 +724,7 @@ int write_3dcm_obj(const char *output_3dcm, std::vector<Polygon> &map_polygons, 
   // Faces
   for (std::vector<Polygon>::iterator current_polygon = map_polygons.begin(); current_polygon != map_polygons.end(); ++current_polygon) {
     
-    // Faces in polygon triangulation
+    // Triangles in polygon triangulation
     output_stream << "o " << std::to_string(num_polygons) << "\n";
     output_stream << "usemtl " << current_polygon->cityjson_class << "\n";
     for (Triangulation::Finite_faces_iterator current_face = current_polygon->triangulation.finite_faces_begin();
@@ -690,33 +733,21 @@ int write_3dcm_obj(const char *output_3dcm, std::vector<Polygon> &map_polygons, 
       if (current_face->info().interior == false) continue;
       output_stream << "f";
       for (int v = 0; v < 3; ++v) {
-        output_stream << " " << output_vertices[Kernel::Point_3(current_face->vertex(v)->point().x(),
-                                                                current_face->vertex(v)->point().y(),
-                                                                current_face->vertex(v)->info().z)];
+        output_stream << " " << output_vertices[Kernel::Point_3(current_face->vertex(v)->point().x(), current_face->vertex(v)->point().y(), current_face->vertex(v)->info().z)];
       } output_stream << "\n";
     }
     
-    // Vertical walls
-//    bool first_wall = true;
-//    for (auto const &edge: current_polygon->triangulation.constrained_edges()) {
-//      Triangulation::Vertex_handle current_v1 = edge.first->vertex(edge.first->cw(edge.second));
-//      Triangulation::Vertex_handle current_v2 = edge.first->vertex(edge.first->ccw(edge.second));
-//      std::set<Kernel::FT> v1_elevations, v2_elevations;
-//      for (auto const &vertex_in_triangulation: points_index.index[current_v1->point()]) v1_elevations.insert(vertex_in_triangulation.vertex->info().z);
-//      for (auto const &vertex_in_triangulation: points_index.index[current_v2->point()]) v2_elevations.insert(vertex_in_triangulation.vertex->info().z);
-//
-//      // Vertical wall found
-//      if (v1_elevations.size() > 1 && v2_elevations.size() > 1 &&
-//          current_v1->info().z == *v1_elevations.rbegin() &&
-//          current_v2->info().z == *v2_elevations.rbegin()) {
-//          if (first_wall) {
-//            if (current_polygon->cityjson_class == "Building") output_objects += "usemtl BuildingWall\n";
-//            first_wall = false;
-//          } if (v1_elevations.size() == 1) {
-//            output_objects += "f " + std::to_string(<#int __val#>);
-//          }
-//      }
-//    }
+    // Additional triangles
+    bool first_wall = true;
+    for (auto const &triangle: current_polygon->extra_triangles) {
+      if (first_wall) {
+        if (current_polygon->cityjson_class == "Building") output_stream << "usemtl BuildingWall\n";
+        first_wall = false;
+      } std::size_t v1 = output_vertices[std::get<0>(triangle)];
+      std::size_t v2 = output_vertices[std::get<1>(triangle)];
+      std::size_t v3 = output_vertices[std::get<2>(triangle)];
+      output_stream << "f " << v1 << " " << v2 << " " << v3 << "\n";
+    }
     
   ++num_polygons;
   } output_stream.close();
@@ -776,13 +807,14 @@ int main(int argc, const char * argv[]) {
   load_point_cloud(input_point_cloud, point_cloud);
   index_point_cloud(point_cloud, index);
   create_terrain_tin(map_polygons, point_cloud, index, terrain);
-  write_terrain_obj("/Users/ken/Downloads/terrain.obj", terrain);
+//  write_terrain_obj("/Users/ken/Downloads/terrain.obj", terrain);
   lift_flat_polygons(map_polygons, "Building", point_cloud, index, 0.7);
   lift_flat_polygons(map_polygons, "WaterBody", point_cloud, index, 0.1);
   lift_polygon_vertices(map_polygons, "Road", terrain);
   lift_polygon_vertices(map_polygons, "Railway", terrain);
   lift_polygons(map_polygons, "PlantCover", terrain);
   lift_polygons(map_polygons, "LandUse", terrain);
+  create_vertical_walls(map_polygons, points_index, terrain);
   write_3dcm_obj(output_3dcm, map_polygons, points_index);
   
   return 0;
