@@ -420,8 +420,8 @@ int create_terrain_tin(std::vector<Polygon> &map_polygons, Point_cloud &point_cl
   const Kernel::FT dtm_ratio_to_use = 0.01;
   const std::size_t minimum_points_in_grid = 100;
   Kernel::FT squared_search_radius = dtm_search_radius*dtm_search_radius;
-  for (Kernel::FT x = index.x_min-0.5*dtm_cell_size; x < index.x_max+0.5*dtm_cell_size; x += dtm_cell_size) {
-    for (Kernel::FT y = index.y_min-0.5*dtm_cell_size; y < index.y_max+0.5*dtm_cell_size; y += dtm_cell_size) {
+  for (Kernel::FT x = index.x_min-0.5*dtm_search_radius; x < index.x_max+0.5*dtm_search_radius; x += dtm_cell_size) {
+    for (Kernel::FT y = index.y_min-0.5*dtm_search_radius; y < index.y_max+0.5*dtm_search_radius; y += dtm_cell_size) {
       std::vector<Index *> intersected_nodes;
       index.find_intersections(intersected_nodes, x-0.5*dtm_search_radius, x+0.5*dtm_search_radius, y-0.5*dtm_search_radius, y+0.5*dtm_search_radius);
       std::vector<Kernel::FT> elevations;
@@ -449,8 +449,8 @@ int create_terrain_tin(std::vector<Polygon> &map_polygons, Point_cloud &point_cl
   Point_cloud smooth_dtm_point_cloud;
   const Kernel::FT smoothing_radius = 50.0;
   Kernel::FT squared_smoothing_radius = smoothing_radius*smoothing_radius;
-  for (Kernel::FT x = index.x_min-dtm_cell_size; x < index.x_max+dtm_cell_size; x += dtm_cell_size) {
-    for (Kernel::FT y = index.y_min-dtm_cell_size; y < index.y_max+dtm_cell_size; y += dtm_cell_size) {
+  for (Kernel::FT x = index.x_min-0.5*smoothing_radius; x < index.x_max+0.5*smoothing_radius; x += dtm_cell_size) {
+    for (Kernel::FT y = index.y_min-0.5*smoothing_radius; y < index.y_max+0.5*smoothing_radius; y += dtm_cell_size) {
 
       std::vector<Index *> intersected_nodes;
       dtm_index.find_intersections(intersected_nodes, x-smoothing_radius, x+smoothing_radius, y-smoothing_radius, y+smoothing_radius);
