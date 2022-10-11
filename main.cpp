@@ -71,6 +71,7 @@ struct Vertex_in_triangulation_handle {
     this->vertex = vertex;
   }
   bool operator<(const Vertex_in_triangulation_handle other) const {
+    if (this->map_polygon != other.map_polygon) return this->map_polygon < other.map_polygon;
     return this->vertex->info().z < other.vertex->info().z;
   }
 };
