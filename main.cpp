@@ -267,9 +267,6 @@ int triangulate_polygons(std::vector<Polygon> &map_polygons) {
         CGAL_assertion(to_check.front()->info().processed == true);
         for (int neighbour = 0; neighbour < 3; ++neighbour) {
           if (to_check.front()->neighbor(neighbour)->info().processed == true) {
-            // Note: validation code.
-//            if (triangulation.is_constrained(Triangulation::Edge(toCheck.front(), neighbour))) CGAL_assertion(toCheck.front()->neighbor(neighbour)->info().interior != toCheck.front()->info().interior);
-//            else CGAL_assertion(toCheck.front()->neighbor(neighbour)->info().interior == toCheck.front()->info().interior);
           } else {
             to_check.front()->neighbor(neighbour)->info().processed = true;
             CGAL_assertion(to_check.front()->neighbor(neighbour)->info().processed == true);
@@ -555,16 +552,16 @@ int lift_polygon_vertices(std::vector<Polygon> &map_polygons, const char *cityjs
            current_vertex != polygon.triangulation.finite_vertices_end();
            ++current_vertex) {
         
-        Triangulation::Face_handle triangle_of_point = terrain.locate(current_vertex->point());
+        Triangulation::Face_handle face_of_point = terrain.locate(current_vertex->point());
         std::vector<Kernel::FT> barycentric_coordinates;
-        CGAL::Barycentric_coordinates::triangle_coordinates_2(triangle_of_point->vertex(0)->point(),
-                                                              triangle_of_point->vertex(1)->point(),
-                                                              triangle_of_point->vertex(2)->point(),
+        CGAL::Barycentric_coordinates::triangle_coordinates_2(face_of_point->vertex(0)->point(),
+                                                              face_of_point->vertex(1)->point(),
+                                                              face_of_point->vertex(2)->point(),
                                                               current_vertex->point(),
                                                               std::back_inserter(barycentric_coordinates));
-        current_vertex->info().z = barycentric_coordinates[0]*triangle_of_point->vertex(0)->info().z +
-                                   barycentric_coordinates[1]*triangle_of_point->vertex(1)->info().z +
-                                   barycentric_coordinates[2]*triangle_of_point->vertex(2)->info().z;
+        current_vertex->info().z = barycentric_coordinates[0]*face_of_point->vertex(0)->info().z +
+                                   barycentric_coordinates[1]*face_of_point->vertex(1)->info().z +
+                                   barycentric_coordinates[2]*face_of_point->vertex(2)->info().z;
         
         ++n_vertices;
       } ++n_polygons;
@@ -572,6 +569,83 @@ int lift_polygon_vertices(std::vector<Polygon> &map_polygons, const char *cityjs
   }
   
   std::cout << "Lifted " << n_vertices << " vertices of " << n_polygons << " " << cityjson_class << " polygons for in ";
+  printTimer(start_time);
+  std::cout << " using ";
+  printMemoryUsage();
+  return 0;
+}
+
+int lift_polygons(std::vector<Polygon> &map_polygons, const char *cityjson_class, Triangulation &terrain) {
+  clock_t start_time = clock();
+  std::size_t n_polygons = 0;
+  for (auto &polygon: map_polygons) {
+    if (polygon.cityjson_class == cityjson_class) {
+      
+      // Lift polygon vertices
+      for (Triangulation::Finite_vertices_iterator current_vertex = polygon.triangulation.finite_vertices_begin();
+           current_vertex != polygon.triangulation.finite_vertices_end();
+           ++current_vertex) {
+        
+        
+        Triangulation::Face_handle face_of_point = terrain.locate(current_vertex->point());
+        std::vector<Kernel::FT> barycentric_coordinates;
+        CGAL::Barycentric_coordinates::triangle_coordinates_2(face_of_point->vertex(0)->point(),
+                                                              face_of_point->vertex(1)->point(),
+                                                              face_of_point->vertex(2)->point(),
+                                                              current_vertex->point(),
+                                                              std::back_inserter(barycentric_coordinates));
+        current_vertex->info().z = barycentric_coordinates[0]*face_of_point->vertex(0)->info().z +
+                                   barycentric_coordinates[1]*face_of_point->vertex(1)->info().z +
+                                   barycentric_coordinates[2]*face_of_point->vertex(2)->info().z;
+      }
+      
+      // Add terrain vertices in polygon
+      std::vector<Triangulation::Vertex_handle> terrain_vertices_in_polygon;
+      for (auto const &current_vertex: terrain.finite_vertex_handles()) {
+        if (current_vertex->point().x() > polygon.x_min && current_vertex->point().x() < polygon.x_max &&
+            current_vertex->point().y() > polygon.y_min && current_vertex->point().y() < polygon.y_max) {
+          Triangulation::Locate_type locate_type;
+          int vertex_index;
+          Triangulation::Face_handle face_of_point = polygon.triangulation.locate(current_vertex->point(), locate_type, vertex_index);
+          if (locate_type == Triangulation::FACE && face_of_point->info().interior == true) {
+            terrain_vertices_in_polygon.push_back(current_vertex);
+          }
+        }
+      } for (auto const &terrain_vertex: terrain_vertices_in_polygon) {
+        Triangulation::Vertex_handle polygon_vertex = polygon.triangulation.insert(terrain_vertex->point());
+        polygon_vertex->info().z = terrain_vertex->info().z;
+      }
+      
+      // Relabel triangles as interior/exterior
+      for (auto const &current_face: polygon.triangulation.finite_face_handles()) {
+        current_face->info().processed = false;
+        current_face->info().interior = false;
+      } std::list<Triangulation::Face_handle> to_check;
+      polygon.triangulation.infinite_face()->info().processed = true;
+      polygon.triangulation.infinite_face()->info().interior = false;
+      to_check.push_back(polygon.triangulation.infinite_face());
+      while (!to_check.empty()) {
+        CGAL_assertion(to_check.front()->info().processed == true);
+        for (int neighbour = 0; neighbour < 3; ++neighbour) {
+          if (to_check.front()->neighbor(neighbour)->info().processed == true) {
+          } else {
+            to_check.front()->neighbor(neighbour)->info().processed = true;
+            CGAL_assertion(to_check.front()->neighbor(neighbour)->info().processed == true);
+            if (polygon.triangulation.is_constrained(Triangulation::Edge(to_check.front(), neighbour))) {
+              to_check.front()->neighbor(neighbour)->info().interior = !to_check.front()->info().interior;
+              to_check.push_back(to_check.front()->neighbor(neighbour));
+            } else {
+              to_check.front()->neighbor(neighbour)->info().interior = to_check.front()->info().interior;
+              to_check.push_back(to_check.front()->neighbor(neighbour));
+            }
+          }
+        } to_check.pop_front();
+      }
+      
+      ++n_polygons;
+    }
+  }
+  std::cout << "Lifted " << n_polygons << " " << cityjson_class << " polygons in ";
   printTimer(start_time);
   std::cout << " using ";
   printMemoryUsage();
@@ -703,8 +777,8 @@ int main(int argc, const char * argv[]) {
   lift_flat_polygons(map_polygons, "Building", point_cloud, index, 0.7);
   lift_polygon_vertices(map_polygons, "Road", terrain);
   lift_polygon_vertices(map_polygons, "Railway", terrain);
-//  lift_polygon_vertices(map_polygons, "PlantCover", terrain);
-//  lift_polygon_vertices(map_polygons, "LandUse", terrain);
+  lift_polygons(map_polygons, "PlantCover", terrain);
+  lift_polygons(map_polygons, "LandUse", terrain);
   write_3dcm_obj(output_3dcm, map_polygons, points_index);
   
   return 0;
