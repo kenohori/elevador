@@ -12,6 +12,7 @@
 #include <CGAL/Point_set_3.h>
 #include <CGAL/Barycentric_coordinates_2/triangle_coordinates_2.h>
 #include "Quadtree.h"
+#include "Edge_map.h"
 
 #include <ogrsf_frmts.h>
 
@@ -33,7 +34,8 @@ typedef CGAL::Triangulation_data_structure_2<Vertex_base, Face_base_with_info> T
 typedef CGAL::Constrained_Delaunay_triangulation_2<Kernel, Triangulation_data_structure, Tag> Constrained_delaunay_triangulation;
 typedef Enhanced_constrained_triangulation_2<Constrained_delaunay_triangulation> Triangulation;
 typedef CGAL::Point_set_3<Kernel::Point_3> Point_cloud;
-typedef Quadtree<Kernel, Point_cloud> Index;
+typedef Quadtree_node<Kernel, Point_cloud> Point_index;
+typedef Edge_map<Kernel, Triangulation> Edge_index;
 
 struct Vertex_info {
   Kernel::FT z;
@@ -55,16 +57,6 @@ struct Ring {
   std::vector<Kernel::Point_2> points;
 };
 
-struct Polygon;
-struct External_adjacency {
-  std::vector<Polygon>::iterator adjacent_polygon;
-  Triangulation::Face_handle adjacent_face;
-};
-
-struct External_adjacencies {
-  std::map<int, External_adjacency> adjacency_opposite_to_vertex;
-};
-
 struct Triangle {
   Kernel::Point_3 p1, p2, p3;
 };
@@ -73,7 +65,6 @@ struct Polygon {
   Ring outer_ring;
   std::vector<Ring> inner_rings;
   Triangulation triangulation;
-  std::unordered_map<Triangulation::Face_handle, External_adjacencies> adjacencies_of_face;
   std::vector<Triangle> extra_triangles;
   std::string cityjson_class;
   Kernel::FT x_min, x_max, y_min, y_max;
@@ -289,7 +280,7 @@ int triangulate_polygons(std::vector<Polygon> &map_polygons) {
   return 0;
 }
 
-int compute_adjacencies(std::vector<Polygon> &map_polygons) {
+int index_map_polygons(std::vector<Polygon> &map_polygons, Edge_index &edges_index) {
   clock_t start_time = clock();
   std::unordered_map<Kernel::Point_2, std::unordered_map<Kernel::Point_2, std::tuple<std::vector<Polygon>::iterator, Triangulation::Face_handle, int>>> open_edges;
   for (std::vector<Polygon>::iterator current_polygon = map_polygons.begin(); current_polygon != map_polygons.end(); ++current_polygon) {
@@ -322,26 +313,17 @@ int compute_adjacencies(std::vector<Polygon> &map_polygons) {
       }
     }
     
-    // Compute adjacencies
-    for (auto const &edge: current_polygon->triangulation.constrained_edges()) {
-      Triangulation::Vertex_handle origin = edge.first->vertex(edge.first->ccw(edge.second));
-      Triangulation::Vertex_handle destination = edge.first->vertex(edge.first->cw(edge.second));
-      
-      bool match_found = false;
-      std::unordered_map<Kernel::Point_2, std::unordered_map<Kernel::Point_2, std::tuple<std::vector<Polygon>::iterator, Triangulation::Face_handle, int>>>::iterator adjacencies_at_destination = open_edges.find(destination->point());
-      if (adjacencies_at_destination != open_edges.end()) {
-        std::unordered_map<Kernel::Point_2, std::tuple<std::vector<Polygon>::iterator, Triangulation::Face_handle, int>>::iterator adjacent_face = adjacencies_at_destination->second.find(origin->point());
-        if (adjacent_face != adjacencies_at_destination->second.end()) {
-          match_found = true;
-          current_polygon->adjacencies_of_face[edge.first].adjacency_opposite_to_vertex[edge.second].adjacent_polygon = std::get<0>(adjacent_face->second);
-          current_polygon->adjacencies_of_face[edge.first].adjacency_opposite_to_vertex[edge.second].adjacent_face = std::get<1>(adjacent_face->second);
-          std::get<0>(adjacent_face->second)->adjacencies_of_face[std::get<1>(adjacent_face->second)].adjacency_opposite_to_vertex[std::get<2>(adjacent_face->second)].adjacent_polygon = current_polygon;
-          std::get<0>(adjacent_face->second)->adjacencies_of_face[std::get<1>(adjacent_face->second)].adjacency_opposite_to_vertex[std::get<2>(adjacent_face->second)].adjacent_face = edge.first;
+    // Index edges
+    for (auto const &face: current_polygon->triangulation.finite_face_handles()) {
+      if (face->info().interior) {
+        for (int opposite_vertex = 0; opposite_vertex < 3; ++opposite_vertex) {
+          if (face->neighbor(opposite_vertex) == current_polygon->triangulation.infinite_face() ||
+              !face->neighbor(opposite_vertex)->info().interior) {
+            Triangulation::Vertex_handle origin = face->vertex(face->ccw(opposite_vertex));
+            Triangulation::Vertex_handle destination = face->vertex(face->cw(opposite_vertex));
+            edges_index.insert(origin->point(), destination->point(), current_polygon, face, opposite_vertex);
+          }
         }
-      }
-      
-      if (!match_found) {
-        open_edges[origin->point()][destination->point()].
       }
     }
   }
@@ -358,7 +340,7 @@ int compute_adjacencies(std::vector<Polygon> &map_polygons) {
     if (polygon.y_max > y_max) y_max = polygon.y_max;
   } // std::cout << "Map extent: X = [" << x_min << ", " << x_max << "] Y = [" << y_min << ", " << y_max << "]" << std::endl;
   
-  std::cout << "Computed adjacencies of " << map_polygons.size() << " polygons in ";
+  std::cout << "Indexed " << edges_index.size() << " edges of " << map_polygons.size() << " polygons in ";
   printTimer(start_time);
   std::cout << " using ";
   printMemoryUsage();
@@ -396,7 +378,7 @@ int load_point_cloud(const char *input_point_cloud, Point_cloud &point_cloud) {
   return 0;
 }
 
-int index_point_cloud(Point_cloud &point_cloud, Index &index) {
+int index_point_cloud(Point_cloud &point_cloud, Point_index &index) {
   
   const int bucket_size = 100;
   const int maximum_depth = 10;
@@ -416,7 +398,7 @@ int index_point_cloud(Point_cloud &point_cloud, Index &index) {
   return 0;
 }
 
-int create_terrain_tin(std::vector<Polygon> &map_polygons, Point_cloud &point_cloud, Index &index, Triangulation &terrain) {
+int create_terrain_tin(std::vector<Polygon> &map_polygons, Point_cloud &point_cloud, Point_index &index, Triangulation &terrain) {
   clock_t start_time = clock();
   
   // Remove points from undesirable classes
@@ -424,7 +406,7 @@ int create_terrain_tin(std::vector<Polygon> &map_polygons, Point_cloud &point_cl
   for (auto &polygon: map_polygons) {
     if (polygon.cityjson_class == "Building" ||
         polygon.cityjson_class == "WaterBody") {
-      std::vector<Index *> intersected_nodes;
+      std::vector<Point_index *> intersected_nodes;
       index.find_intersections(intersected_nodes, polygon.x_min, polygon.x_max, polygon.y_min, polygon.y_max);
       for (auto const &node: intersected_nodes) {
         for (auto const &point_index: node->points) {
@@ -445,7 +427,7 @@ int create_terrain_tin(std::vector<Polygon> &map_polygons, Point_cloud &point_cl
   Kernel::FT squared_search_radius = dtm_search_radius*dtm_search_radius;
   for (Kernel::FT x = index.x_min-0.5*dtm_search_radius; x < index.x_max+0.5*dtm_search_radius; x += dtm_cell_size) {
     for (Kernel::FT y = index.y_min-0.5*dtm_search_radius; y < index.y_max+0.5*dtm_search_radius; y += dtm_cell_size) {
-      std::vector<Index *> intersected_nodes;
+      std::vector<Point_index *> intersected_nodes;
       index.find_intersections(intersected_nodes, x-0.5*dtm_search_radius, x+0.5*dtm_search_radius, y-0.5*dtm_search_radius, y+0.5*dtm_search_radius);
       std::vector<Kernel::FT> elevations;
       for (auto const &node: intersected_nodes) {
@@ -465,7 +447,7 @@ int create_terrain_tin(std::vector<Polygon> &map_polygons, Point_cloud &point_cl
   } // std::cout << "Created rough DTM with " << dtm_point_cloud.number_of_points() << " points" << std::endl;
   
   // Index DTM
-  Index dtm_index;
+  Point_index dtm_index;
   index_point_cloud(dtm_point_cloud, dtm_index);
   
   // Smoothen
@@ -475,7 +457,7 @@ int create_terrain_tin(std::vector<Polygon> &map_polygons, Point_cloud &point_cl
   for (Kernel::FT x = index.x_min-0.5*smoothing_radius; x < index.x_max+0.5*smoothing_radius; x += dtm_cell_size) {
     for (Kernel::FT y = index.y_min-0.5*smoothing_radius; y < index.y_max+0.5*smoothing_radius; y += dtm_cell_size) {
 
-      std::vector<Index *> intersected_nodes;
+      std::vector<Point_index *> intersected_nodes;
       dtm_index.find_intersections(intersected_nodes, x-smoothing_radius, x+smoothing_radius, y-smoothing_radius, y+smoothing_radius);
       Kernel::FT sum_of_elevations = 0.0;
       std::size_t number_of_points = 0.0;
@@ -512,14 +494,14 @@ int create_terrain_tin(std::vector<Polygon> &map_polygons, Point_cloud &point_cl
   return 0;
 }
 
-int lift_flat_polygons(std::vector<Polygon> &map_polygons, const char *cityjson_class, Point_cloud &point_cloud, Index &index, Kernel::FT ratio_to_use) {
+int lift_flat_polygons(std::vector<Polygon> &map_polygons, const char *cityjson_class, Point_cloud &point_cloud, Point_index &index, Kernel::FT ratio_to_use) {
   clock_t start_time = clock();
   std::size_t n_polygons = 0;
   for (auto &polygon: map_polygons) {
     if (polygon.cityjson_class == cityjson_class) {
       
       // Find index nodes overlapping the polygon bbox
-      std::vector<Index *> intersected_nodes;
+      std::vector<Point_index *> intersected_nodes;
       index.find_intersections(intersected_nodes, polygon.x_min, polygon.x_max, polygon.y_min, polygon.y_max);
       
       // Find PC points overlapping the polygon
@@ -675,7 +657,7 @@ int lift_polygons(std::vector<Polygon> &map_polygons, const char *cityjson_class
   return 0;
 }
 
-int create_vertical_walls(std::vector<Polygon> &map_polygons, Triangulation &terrain) {
+int create_vertical_walls(std::vector<Polygon> &map_polygons, Edge_index &edge_index) {
   clock_t start_time = clock();
   
 //  for (std::vector<Polygon>::iterator current_polygon = map_polygons.begin(); current_polygon != map_polygons.end(); ++current_polygon) {
@@ -814,29 +796,30 @@ int main(int argc, const char * argv[]) {
   
   const char *input_map = "/Users/ken/Downloads/3dfier_os/osmm/osmm.gpkg";
   const char *input_point_cloud = "/Users/ken/Downloads/3dfier_os/osmm/Exeter_VOLTAtest.laz";
+  const char *output_terrain = "/Users/ken/Downloads/terrain.obj";
   const char *output_3dcm = "/Users/ken/Downloads/exeter.obj";
   
   std::vector<Polygon> map_polygons;
-//  Points_index points_index;
+  Edge_index edge_index;
   Point_cloud point_cloud;
-  Index index;
+  Point_index point_cloud_index;
   Triangulation terrain;
   
   load_map(input_map, map_polygons);
   triangulate_polygons(map_polygons);
-  compute_adjacencies(map_polygons);
-//  load_point_cloud(input_point_cloud, point_cloud);
-//  index_point_cloud(point_cloud, index);
-//  create_terrain_tin(map_polygons, point_cloud, index, terrain);
-//  write_terrain_obj("/Users/ken/Downloads/terrain.obj", terrain);
-//  lift_flat_polygons(map_polygons, "Building", point_cloud, index, 0.7);
-//  lift_flat_polygons(map_polygons, "WaterBody", point_cloud, index, 0.1);
-//  lift_polygon_vertices(map_polygons, "Road", terrain);
-//  lift_polygon_vertices(map_polygons, "Railway", terrain);
-//  lift_polygons(map_polygons, "PlantCover", terrain);
-//  lift_polygons(map_polygons, "LandUse", terrain);
-//  create_vertical_walls(map_polygons, terrain);
-//  write_3dcm_obj(output_3dcm, map_polygons);
+  index_map_polygons(map_polygons, edge_index);
+  load_point_cloud(input_point_cloud, point_cloud);
+  index_point_cloud(point_cloud, point_cloud_index);
+  create_terrain_tin(map_polygons, point_cloud, point_cloud_index, terrain);
+  write_terrain_obj(output_terrain, terrain);
+  lift_flat_polygons(map_polygons, "Building", point_cloud, point_cloud_index, 0.7);
+  lift_flat_polygons(map_polygons, "WaterBody", point_cloud, point_cloud_index, 0.1);
+  lift_polygon_vertices(map_polygons, "Road", terrain);
+  lift_polygon_vertices(map_polygons, "Railway", terrain);
+  lift_polygons(map_polygons, "PlantCover", terrain);
+  lift_polygons(map_polygons, "LandUse", terrain);
+  create_vertical_walls(map_polygons, edge_index);
+  write_3dcm_obj(output_3dcm, map_polygons);
   
   return 0;
 }
