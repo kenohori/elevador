@@ -1,6 +1,8 @@
 #include <iostream>
 #include <fstream>
 #include <algorithm>
+#include <locale>
+#include <iomanip>
 #include <mach/mach.h>
 
 #include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
@@ -73,26 +75,23 @@ struct Polygon {
 void print_timer(clock_t &start_time) {
   clock_t stop_time = clock();
   double seconds = (stop_time-start_time)/(double)CLOCKS_PER_SEC;
-  std::cout << std::to_string(seconds) + " seconds";
+  std::cout << seconds << " seconds";
 }
 
 void print_memory_usage() {
   struct task_basic_info t_info;
   mach_msg_type_number_t t_info_count = TASK_BASIC_INFO_COUNT;
-  std::string usage;
   if (task_info(mach_task_self(), TASK_BASIC_INFO, (task_info_t)&t_info, &t_info_count) == KERN_SUCCESS) {
-    
     if (t_info.resident_size > 1024*1024*1024) {
-      usage += std::to_string(t_info.resident_size/(1024.0*1024.0*1024.0)) + " GB";
+      std::cout << t_info.resident_size/(1024.0*1024.0*1024.0) << " GB";
     } else if (t_info.resident_size > 1024*1024) {
-      usage += std::to_string(t_info.resident_size/(1024.0*1024.0)) + " MB";
+      std::cout << t_info.resident_size/(1024.0*1024.0) << " MB";
     } else if (t_info.resident_size > 1024) {
-      usage += std::to_string(t_info.resident_size/1024.0) + " KB";
+      std::cout << t_info.resident_size/1024.0 << " KB";
     } else {
-      usage += std::to_string(t_info.resident_size) + " bytes";
-    }
-    
-  } std::cout << usage << std::endl;
+      std::cout << t_info.resident_size << " bytes";
+    } std::cout << std::endl;
+  }
 }
 
 int load_map(const char *input_map, std::vector<Polygon> &map_polygons) {
@@ -280,7 +279,7 @@ int triangulate_polygons(std::vector<Polygon> &map_polygons) {
   return 0;
 }
 
-int index_map_polygons(std::vector<Polygon> &map_polygons, Edge_index &edges_index) {
+int index_map(std::vector<Polygon> &map_polygons, Edge_index &edges_index) {
   clock_t start_time = clock();
   std::unordered_map<Kernel::Point_2, std::unordered_map<Kernel::Point_2, std::tuple<std::vector<Polygon>::iterator, Triangulation::Face_handle, int>>> open_edges;
   for (std::vector<Polygon>::iterator current_polygon = map_polygons.begin(); current_polygon != map_polygons.end(); ++current_polygon) {
@@ -327,6 +326,9 @@ int index_map_polygons(std::vector<Polygon> &map_polygons, Edge_index &edges_ind
       }
     }
   }
+  
+  // Index stats
+  
   
   // Print extent
   Kernel::FT x_min = map_polygons.front().x_min;
@@ -805,21 +807,25 @@ int main(int argc, const char * argv[]) {
   Point_index point_cloud_index;
   Triangulation terrain;
   
+  std::cout.imbue(std::locale("en_US"));
+  std::cout << std::fixed;
+  std::cout << std::setprecision(2);
+  
   load_map(input_map, map_polygons);
   triangulate_polygons(map_polygons);
-  index_map_polygons(map_polygons, edge_index);
-  load_point_cloud(input_point_cloud, point_cloud);
-  index_point_cloud(point_cloud, point_cloud_index);
-  create_terrain_tin(map_polygons, point_cloud, point_cloud_index, terrain);
-  write_terrain_obj(output_terrain, terrain);
-  lift_flat_polygons(map_polygons, "Building", point_cloud, point_cloud_index, 0.7);
-  lift_flat_polygons(map_polygons, "WaterBody", point_cloud, point_cloud_index, 0.1);
-  lift_polygon_vertices(map_polygons, "Road", terrain);
-  lift_polygon_vertices(map_polygons, "Railway", terrain);
-  lift_polygons(map_polygons, "PlantCover", terrain);
-  lift_polygons(map_polygons, "LandUse", terrain);
-  create_vertical_walls(map_polygons, edge_index);
-  write_3dcm_obj(output_3dcm, map_polygons);
+  index_map(map_polygons, edge_index);
+//  load_point_cloud(input_point_cloud, point_cloud);
+//  index_point_cloud(point_cloud, point_cloud_index);
+//  create_terrain_tin(map_polygons, point_cloud, point_cloud_index, terrain);
+//  write_terrain_obj(output_terrain, terrain);
+//  lift_flat_polygons(map_polygons, "Building", point_cloud, point_cloud_index, 0.7);
+//  lift_flat_polygons(map_polygons, "WaterBody", point_cloud, point_cloud_index, 0.1);
+//  lift_polygon_vertices(map_polygons, "Road", terrain);
+//  lift_polygon_vertices(map_polygons, "Railway", terrain);
+//  lift_polygons(map_polygons, "PlantCover", terrain);
+//  lift_polygons(map_polygons, "LandUse", terrain);
+//  create_vertical_walls(map_polygons, edge_index);
+//  write_3dcm_obj(output_3dcm, map_polygons);
   
   return 0;
 }
