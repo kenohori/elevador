@@ -328,7 +328,7 @@ int index_map(std::vector<Polygon> &map_polygons, Edge_index &edges_index) {
   }
   
   // Index stats
-  
+  edges_index.print_info();
   
   // Print extent
   Kernel::FT x_min = map_polygons.front().x_min;
@@ -342,7 +342,7 @@ int index_map(std::vector<Polygon> &map_polygons, Edge_index &edges_index) {
     if (polygon.y_max > y_max) y_max = polygon.y_max;
   } // std::cout << "Map extent: X = [" << x_min << ", " << x_max << "] Y = [" << y_min << ", " << y_max << "]" << std::endl;
   
-  std::cout << "Indexed " << edges_index.size() << " edges of " << map_polygons.size() << " polygons in ";
+  std::cout << "Indexed " << edges_index.size() << " half-edges edges of " << map_polygons.size() << " polygons in ";
   print_timer(start_time);
   std::cout << " using ";
   print_memory_usage();

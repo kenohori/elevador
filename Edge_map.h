@@ -30,9 +30,44 @@ struct Edge_map {
   
   std::size_t size() const {
     std::size_t number_of_edges = 0;
-    for (auto const &edge: edges) {
-      number_of_edges += edge.second.size();
+    for (auto const &directed_edges_from_source_vertex: edges) {
+      number_of_edges += directed_edges_from_source_vertex.second.size();
     } return number_of_edges;
+  }
+  
+  void print_info() const {
+    std::size_t one_to_zero = 0, many_to_zero = 0, one_to_one = 0, many_to_one = 0, many_to_many = 0;
+    for (auto const &directed_edges_from_source_vertex: edges) {
+      for (auto const &adjacent_faces_with_destination_vertex: directed_edges_from_source_vertex.second) {
+        if (edges.count(adjacent_faces_with_destination_vertex.first) == 0 ||
+            edges.at(adjacent_faces_with_destination_vertex.first).count(directed_edges_from_source_vertex.first) == 0) {
+          if (adjacent_faces_with_destination_vertex.second.adjacent_faces.size() == 1) {
+            ++one_to_zero;
+          } else {
+            ++many_to_zero;
+          }
+        } else if (directed_edges_from_source_vertex.first < adjacent_faces_with_destination_vertex.first) {
+          if (adjacent_faces_with_destination_vertex.second.adjacent_faces.size() == 1) {
+            if (edges.at(adjacent_faces_with_destination_vertex.first).at(directed_edges_from_source_vertex.first).adjacent_faces.size() == 1) {
+              ++one_to_one;
+            } else {
+              ++many_to_one;
+            }
+          } else {
+            if (edges.at(adjacent_faces_with_destination_vertex.first).at(directed_edges_from_source_vertex.first).adjacent_faces.size() == 1) {
+              ++many_to_one;
+            } else {
+              ++many_to_many;
+            }
+          }
+        }
+      }
+    } std::cout << "Edges: " << std::endl;
+    std::cout << "\t" << one_to_zero << "\t1:0 (border)" << std::endl;
+    std::cout << "\t" << many_to_zero << "\t2+:0 (border with overlap)" << std::endl;
+    std::cout << "\t" << one_to_one << "\t1:1 (perfect match)" << std::endl;
+    std::cout << "\t" << many_to_one << "\t2+:1 (overlap on one side)" << std::endl;
+    std::cout << "\t" << many_to_many << "\t2+:2+ (overlap on both sides)" << std::endl;
   }
 };
 

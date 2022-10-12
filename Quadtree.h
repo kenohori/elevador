@@ -89,7 +89,7 @@ struct Quadtree_node {
     if (lower_right != NULL && lower_right->intersects(x_min, x_max, y_min, y_max)) lower_right->find_intersections(nodes, x_min, x_max, y_min, y_max);
   }
   
-  void print_info() {
+  void print_info() const {
     std::cout << "Quadtree extent: X = [" << x_min << ", " << x_max << "] Y = [" << y_min << ", " << y_max << "]" << std::endl;
     std::vector<std::size_t> nodes_by_depth;
     Quadtree_node *biggest_node = this;
