@@ -25,6 +25,8 @@
 #include <pdal/io/LasHeader.hpp>
 #include <pdal/Options.hpp>
 
+#include <nlohmann/json.hpp>
+
 typedef CGAL::Exact_predicates_inexact_constructions_kernel Kernel;
 typedef CGAL::Exact_predicates_tag Tag;
 struct Vertex_info;
@@ -74,6 +76,8 @@ struct Polygon {
   Triangulation triangulation;
   std::vector<Triangle> extra_triangles;
   std::string cityjson_class;
+  std::string id;
+  std::unordered_map<std::string, std::string> attributes;
   Kernel::FT x_min, x_max, y_min, y_max;
 };
 
@@ -117,13 +121,46 @@ int load_map(const char *input_map, std::vector<Polygon> &map_polygons) {
     OGRFeature *input_feature;
     while ((input_feature = input_layer->GetNextFeature()) != NULL) {
       if (!input_feature->GetGeometryRef()) continue;
+      std::string cityjson_class;
+      std::unordered_map<std::string, std::string> attributes;
       
-      std::string cityjson_class = input_feature->GetFieldAsString("citygmlclass");
+      for (int current_field = 0; current_field < input_feature->GetFieldCount(); ++current_field) {
+        if (strcmp(input_feature->GetFieldDefnRef(current_field)->GetNameRef(), "citygmlclass") == 0) {
+          cityjson_class = input_feature->GetFieldAsString("citygmlclass");
+          continue;
+        } switch (input_feature->GetFieldDefnRef(current_field)->GetType()) {
+          case OFTReal:
+            attributes[input_feature->GetFieldDefnRef(current_field)->GetNameRef()] = std::to_string(input_feature->GetFieldAsDouble(current_field));
+            break;
+          case OFTString:
+            attributes[input_feature->GetFieldDefnRef(current_field)->GetNameRef()] = input_feature->GetFieldAsString(current_field);
+            break;
+          case OFTInteger:
+            attributes[input_feature->GetFieldDefnRef(current_field)->GetNameRef()] = std::to_string(input_feature->GetFieldAsInteger(current_field));
+            break;
+          case OFTInteger64:
+            attributes[input_feature->GetFieldDefnRef(current_field)->GetNameRef()] = std::to_string(input_feature->GetFieldAsInteger64(current_field));
+            break;
+          case OFTDate:
+            int year, month, day, hour, minute, second, timezone;
+            input_feature->GetFieldAsDateTime(current_field, &year, &month, &day, &hour, &minute, &second, &timezone);
+            attributes[input_feature->GetFieldDefnRef(current_field)->GetNameRef()] = std::to_string(year) + "-" + std::to_string(month) + "-" + std::to_string(day);
+            break;
+          default:
+            std::cout << "Unsupported field type: " << input_feature->GetFieldDefnRef(current_field)->GetType() << std::endl;
+            break;
+        }
+      }
+      
+      
+      
       if (wkbFlatten(input_feature->GetGeometryRef()->getGeometryType()) == wkbPolygon ||
           wkbFlatten(input_feature->GetGeometryRef()->getGeometryType()) == wkbTriangle) {
         OGRPolygon *input_polygon = input_feature->GetGeometryRef()->toPolygon();
         map_polygons.emplace_back();
+        map_polygons.back().id = std::to_string(input_feature->GetFID());
         map_polygons.back().cityjson_class = cityjson_class;
+        map_polygons.back().attributes = attributes;
         for (int current_vertex = 0; current_vertex < input_polygon->getExteriorRing()->getNumPoints(); ++current_vertex) {
           map_polygons.back().outer_ring.points.emplace_back(input_polygon->getExteriorRing()->getX(current_vertex),
                                                              input_polygon->getExteriorRing()->getY(current_vertex));
@@ -141,7 +178,9 @@ int load_map(const char *input_map, std::vector<Polygon> &map_polygons) {
         for (int current_polygon = 0; current_polygon < input_multipolygon->getNumGeometries(); ++current_polygon) {
           OGRPolygon *input_polygon = input_multipolygon->getGeometryRef(current_polygon);
           map_polygons.emplace_back();
+          map_polygons.back().id = std::to_string(input_feature->GetFID()) + "-" + std::to_string(current_polygon);
           map_polygons.back().cityjson_class = cityjson_class;
+          map_polygons.back().attributes = attributes;
           for (int current_vertex = 0; current_vertex < input_polygon->getExteriorRing()->getNumPoints(); ++current_vertex) {
             map_polygons.back().outer_ring.points.emplace_back(input_polygon->getExteriorRing()->getX(current_vertex),
                                                                input_polygon->getExteriorRing()->getY(current_vertex));
@@ -782,7 +821,101 @@ int write_3dcm_obj(const char *output_3dcm, std::vector<Polygon> &map_polygons) 
     }
     
   ++num_polygons;
-  } output_stream.close();
+  }
+  
+  output_stream.close();
+  std::cout << "Wrote 3D city model in ";
+  print_timer(start_time);
+  std::cout << " using ";
+  print_memory_usage();
+  return 0;
+}
+
+int write_3dcm_cityjson(const char *output_3dcm, std::vector<Polygon> &map_polygons) {
+  clock_t start_time = clock();
+  std::ofstream output_stream;
+  output_stream.open(output_3dcm);
+  output_stream << std::fixed;
+  output_stream << std::setprecision(2);
+  std::unordered_map<Kernel::Point_3, std::size_t> output_vertices;
+  std::size_t num_polygons = 0;
+  
+  // Prepare CityJSON
+  nlohmann::json cityjson;
+  cityjson["type"] = "CityJSON";
+  cityjson["version"] = "1.1";
+  cityjson["transform"] = nlohmann::json::object();
+  cityjson["transform"]["scale"] = {1.0, 1.0, 1.0};
+  cityjson["transform"]["translate"] = {1.0, 1.0, 1.0};
+  cityjson["CityObjects"] = nlohmann::json::object();
+  cityjson["vertices"] = nlohmann::json::array();
+  
+  // Vertices
+  for (std::vector<Polygon>::iterator current_polygon = map_polygons.begin(); current_polygon != map_polygons.end(); ++current_polygon) {
+    for (Triangulation::Finite_faces_iterator current_face = current_polygon->triangulation.finite_faces_begin();
+         current_face != current_polygon->triangulation.finite_faces_end();
+         ++current_face) {
+      if (current_face->info().interior == false) continue;
+      for (int v = 0; v < 3; ++v) {
+        Kernel::Point_3 point(current_face->vertex(v)->point().x(), current_face->vertex(v)->point().y(), current_face->vertex(v)->info().z);
+        if (output_vertices.count(point) == 0) {
+          cityjson["vertices"].push_back({point.x(), point.y(), point.z()});
+          output_vertices[point] = output_vertices.size();
+        }
+      }
+    } for (auto const &triangle: current_polygon->extra_triangles) {
+      if (output_vertices.count(triangle.p1) == 0) {
+        cityjson["vertices"].push_back({triangle.p1.x(), triangle.p1.y(), triangle.p1.z()});
+        output_vertices[triangle.p1] = output_vertices.size();
+      } if (output_vertices.count(triangle.p2) == 0) {
+        cityjson["vertices"].push_back({triangle.p2.x(), triangle.p2.y(), triangle.p2.z()});
+        output_vertices[triangle.p2] = output_vertices.size();
+      } if (output_vertices.count(triangle.p3) == 0) {
+        cityjson["vertices"].push_back({triangle.p3.x(), triangle.p3.y(), triangle.p3.z()});
+        output_vertices[triangle.p3] = output_vertices.size();
+      }
+    }
+  }
+  
+  // City objects
+  for (std::vector<Polygon>::iterator current_polygon = map_polygons.begin(); current_polygon != map_polygons.end(); ++current_polygon) {
+    
+    cityjson["CityObjects"][current_polygon->id] = nlohmann::json::object();
+    cityjson["CityObjects"][current_polygon->id]["type"] = current_polygon->cityjson_class;
+    cityjson["CityObjects"][current_polygon->id]["geometry"] = nlohmann::json::array();
+    cityjson["CityObjects"][current_polygon->id]["geometry"].push_back(nlohmann::json::object());
+    cityjson["CityObjects"][current_polygon->id]["geometry"].back()["lod"] = "1.2";
+    cityjson["CityObjects"][current_polygon->id]["geometry"].back()["boundaries"] = nlohmann::json::array();
+    cityjson["CityObjects"][current_polygon->id]["geometry"].back()["type"] = "MultiSurface";
+    cityjson["CityObjects"][current_polygon->id]["attributes"] = nlohmann::json::object();
+    for (auto const &attribute: current_polygon->attributes) {
+      cityjson["CityObjects"][current_polygon->id]["attributes"][attribute.first] = attribute.second;
+    }
+    
+    // Triangles in polygon triangulation
+    for (Triangulation::Finite_faces_iterator current_face = current_polygon->triangulation.finite_faces_begin();
+         current_face != current_polygon->triangulation.finite_faces_end();
+         ++current_face) {
+      if (current_face->info().interior == false) continue;
+      std::vector<std::size_t> vertices_of_face;
+      for (int v = 0; v < 3; ++v) {
+        vertices_of_face.push_back(output_vertices[Kernel::Point_3(current_face->vertex(v)->point().x(), current_face->vertex(v)->point().y(), current_face->vertex(v)->info().z)]);
+      } cityjson["CityObjects"][current_polygon->id]["geometry"].back()["boundaries"].push_back({{vertices_of_face[0], vertices_of_face[1], vertices_of_face[2]}});
+    }
+    
+    // Additional triangles
+    for (auto const &triangle: current_polygon->extra_triangles) {
+      std::size_t v1 = output_vertices[triangle.p1];
+      std::size_t v2 = output_vertices[triangle.p2];
+      std::size_t v3 = output_vertices[triangle.p3];
+      cityjson["CityObjects"][current_polygon->id]["geometry"].back()["boundaries"].push_back({{v1, v2, v3}});
+    }
+    
+  ++num_polygons;
+  }
+  
+  output_stream << cityjson.dump() << std::endl;
+  output_stream.close();
   std::cout << "Wrote 3D city model in ";
   print_timer(start_time);
   std::cout << " using ";
@@ -828,7 +961,8 @@ int main(int argc, const char * argv[]) {
   const char *input_map = "/Users/ken/Downloads/3dfier_os/osmm/osmm.gpkg";
   const char *input_point_cloud = "/Users/ken/Downloads/3dfier_os/osmm/Exeter_VOLTAtest.laz";
   const char *output_terrain = "/Users/ken/Downloads/terrain.obj";
-  const char *output_3dcm = "/Users/ken/Downloads/exeter.obj";
+  const char *output_obj = "/Users/ken/Downloads/exeter.obj";
+  const char *output_cityjson = "/Users/ken/Downloads/exeter.json";
   
   std::vector<Polygon> map_polygons;
   Edge_index edge_index;
@@ -843,18 +977,20 @@ int main(int argc, const char * argv[]) {
   load_map(input_map, map_polygons);
   triangulate_polygons(map_polygons);
   index_map(map_polygons, edge_index);
-  load_point_cloud(input_point_cloud, point_cloud);
-  index_point_cloud(point_cloud, point_cloud_index);
-  create_terrain_tin(map_polygons, point_cloud, point_cloud_index, terrain);
-  write_terrain_obj(output_terrain, terrain);
-  lift_flat_polygons(map_polygons, "Building", point_cloud, point_cloud_index, 0.7);
-  lift_flat_polygons(map_polygons, "WaterBody", point_cloud, point_cloud_index, 0.1);
-  lift_polygon_vertices(map_polygons, "Road", terrain);
-  lift_polygon_vertices(map_polygons, "Railway", terrain);
-  lift_polygons(map_polygons, "PlantCover", terrain);
-  lift_polygons(map_polygons, "LandUse", terrain);
-  create_vertical_walls(map_polygons, edge_index);
-  write_3dcm_obj(output_3dcm, map_polygons);
+//  load_point_cloud(input_point_cloud, point_cloud);
+//  index_point_cloud(point_cloud, point_cloud_index);
+//  create_terrain_tin(map_polygons, point_cloud, point_cloud_index, terrain);
+//  write_terrain_obj(output_terrain, terrain);
+//  lift_flat_polygons(map_polygons, "Building", point_cloud, point_cloud_index, 0.7);
+//  lift_flat_polygons(map_polygons, "WaterBody", point_cloud, point_cloud_index, 0.1);
+//  lift_polygon_vertices(map_polygons, "Road", terrain);
+//  lift_polygon_vertices(map_polygons, "Railway", terrain);
+//  lift_polygon_vertices(map_polygons, "Bridge", terrain);
+//  lift_polygons(map_polygons, "PlantCover", terrain);
+//  lift_polygons(map_polygons, "LandUse", terrain);
+//  create_vertical_walls(map_polygons, edge_index);
+//  write_3dcm_obj(output_obj, map_polygons);
+  write_3dcm_cityjson(output_cityjson, map_polygons);
   
   return 0;
 }
