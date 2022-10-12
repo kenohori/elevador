@@ -832,6 +832,9 @@ int write_3dcm_obj(const char *output_3dcm, std::vector<Polygon> &map_polygons) 
 }
 
 int write_3dcm_cityjson(const char *output_3dcm, std::vector<Polygon> &map_polygons) {
+  
+  Kernel::FT scale_factor = 0.01;
+  
   clock_t start_time = clock();
   std::ofstream output_stream;
   output_stream.open(output_3dcm);
@@ -840,13 +843,25 @@ int write_3dcm_cityjson(const char *output_3dcm, std::vector<Polygon> &map_polyg
   std::unordered_map<Kernel::Point_3, std::size_t> output_vertices;
   std::size_t num_polygons = 0;
   
+  // Compute extent
+  Kernel::FT x_min = map_polygons.front().x_min;
+  Kernel::FT y_min = map_polygons.front().y_min;
+  Kernel::FT z_min = 10000.0;
+  for (std::vector<Polygon>::iterator current_polygon = map_polygons.begin(); current_polygon != map_polygons.end(); ++current_polygon) {
+    for (auto const &current_vertex: current_polygon->triangulation.finite_vertex_handles()) {
+      if (current_vertex->point().x() < x_min) x_min = current_vertex->point().x();
+      if (current_vertex->point().y() < y_min) y_min = current_vertex->point().y();
+      if (current_vertex->info().z < z_min) z_min = current_vertex->info().z;
+    }
+  }
+  
   // Prepare CityJSON
   nlohmann::json cityjson;
   cityjson["type"] = "CityJSON";
   cityjson["version"] = "1.1";
   cityjson["transform"] = nlohmann::json::object();
   cityjson["transform"]["scale"] = {1.0, 1.0, 1.0};
-  cityjson["transform"]["translate"] = {1.0, 1.0, 1.0};
+  cityjson["transform"]["translate"] = {x_min, y_min, z_min};
   cityjson["CityObjects"] = nlohmann::json::object();
   cityjson["vertices"] = nlohmann::json::array();
   
@@ -859,19 +874,19 @@ int write_3dcm_cityjson(const char *output_3dcm, std::vector<Polygon> &map_polyg
       for (int v = 0; v < 3; ++v) {
         Kernel::Point_3 point(current_face->vertex(v)->point().x(), current_face->vertex(v)->point().y(), current_face->vertex(v)->info().z);
         if (output_vertices.count(point) == 0) {
-          cityjson["vertices"].push_back({point.x(), point.y(), point.z()});
+          cityjson["vertices"].push_back({int((point.x()-x_min)/scale_factor), int((point.y()-y_min)/scale_factor), int((point.z()-z_min)/scale_factor)});
           output_vertices[point] = output_vertices.size();
         }
       }
     } for (auto const &triangle: current_polygon->extra_triangles) {
       if (output_vertices.count(triangle.p1) == 0) {
-        cityjson["vertices"].push_back({triangle.p1.x(), triangle.p1.y(), triangle.p1.z()});
+        cityjson["vertices"].push_back({int((triangle.p1.x()-x_min)/scale_factor), int((triangle.p1.y()-y_min)/scale_factor), int((triangle.p1.z()-z_min)/scale_factor)});
         output_vertices[triangle.p1] = output_vertices.size();
       } if (output_vertices.count(triangle.p2) == 0) {
-        cityjson["vertices"].push_back({triangle.p2.x(), triangle.p2.y(), triangle.p2.z()});
+        cityjson["vertices"].push_back({int((triangle.p2.x()-x_min)/scale_factor), int((triangle.p2.y()-y_min)/scale_factor), int((triangle.p2.z()-z_min)/scale_factor)});
         output_vertices[triangle.p2] = output_vertices.size();
       } if (output_vertices.count(triangle.p3) == 0) {
-        cityjson["vertices"].push_back({triangle.p3.x(), triangle.p3.y(), triangle.p3.z()});
+        cityjson["vertices"].push_back({int((triangle.p3.x()-x_min)/scale_factor), int((triangle.p3.y()-y_min)/scale_factor), int((triangle.p3.z()-z_min)/scale_factor)});
         output_vertices[triangle.p3] = output_vertices.size();
       }
     }
@@ -977,19 +992,19 @@ int main(int argc, const char * argv[]) {
   load_map(input_map, map_polygons);
   triangulate_polygons(map_polygons);
   index_map(map_polygons, edge_index);
-//  load_point_cloud(input_point_cloud, point_cloud);
-//  index_point_cloud(point_cloud, point_cloud_index);
-//  create_terrain_tin(map_polygons, point_cloud, point_cloud_index, terrain);
-//  write_terrain_obj(output_terrain, terrain);
-//  lift_flat_polygons(map_polygons, "Building", point_cloud, point_cloud_index, 0.7);
-//  lift_flat_polygons(map_polygons, "WaterBody", point_cloud, point_cloud_index, 0.1);
-//  lift_polygon_vertices(map_polygons, "Road", terrain);
-//  lift_polygon_vertices(map_polygons, "Railway", terrain);
-//  lift_polygon_vertices(map_polygons, "Bridge", terrain);
-//  lift_polygons(map_polygons, "PlantCover", terrain);
-//  lift_polygons(map_polygons, "LandUse", terrain);
-//  create_vertical_walls(map_polygons, edge_index);
-//  write_3dcm_obj(output_obj, map_polygons);
+  load_point_cloud(input_point_cloud, point_cloud);
+  index_point_cloud(point_cloud, point_cloud_index);
+  create_terrain_tin(map_polygons, point_cloud, point_cloud_index, terrain);
+  write_terrain_obj(output_terrain, terrain);
+  lift_flat_polygons(map_polygons, "Building", point_cloud, point_cloud_index, 0.7);
+  lift_flat_polygons(map_polygons, "WaterBody", point_cloud, point_cloud_index, 0.1);
+  lift_polygon_vertices(map_polygons, "Road", terrain);
+  lift_polygon_vertices(map_polygons, "Railway", terrain);
+  lift_polygon_vertices(map_polygons, "Bridge", terrain);
+  lift_polygons(map_polygons, "PlantCover", terrain);
+  lift_polygons(map_polygons, "LandUse", terrain);
+  create_vertical_walls(map_polygons, edge_index);
+  write_3dcm_obj(output_obj, map_polygons);
   write_3dcm_cityjson(output_cityjson, map_polygons);
   
   return 0;
