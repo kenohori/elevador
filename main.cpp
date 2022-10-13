@@ -748,10 +748,19 @@ int create_vertical_walls(std::vector<Polygon> &map_polygons, Edge_index &edge_i
               // Bowtie (from origin at top and destination at bottom to avoid duplicates)
               else if (origin->info().z == *origin_elevations.rbegin() && destination->info().z == *destination_elevations.begin()) {
                 std::cout << "Unsupported case: bowtie" << std::endl;
-//                Kernel::Point_3 origin_top(origin->point().x(), origin->point().y(), *origin_elevations.rbegin());
-//                Kernel::Point_3 destination_top(destination->point().x(), destination->point().y(), *destination_elevations.rbegin());
-//                Kernel::Point_3 origin_bottom(origin->point().x(), origin->point().y(), *origin_elevations.begin()+50.0);
-//                Kernel::Point_3 destination_bottom(destination->point().x(), destination->point().y(), *destination_elevations.begin()+50.0);
+                Kernel::Point_3 origin_top(origin->point().x(), origin->point().y(), *origin_elevations.rbegin());
+                Kernel::Point_3 destination_top(destination->point().x(), destination->point().y(), *destination_elevations.rbegin());
+                Kernel::Point_3 origin_bottom(origin->point().x(), origin->point().y(), *origin_elevations.begin());
+                Kernel::Point_3 destination_bottom(destination->point().x(), destination->point().y(), *destination_elevations.begin());
+                Kernel::Segment_3 top_to_bottom(origin_top, destination_bottom);
+                Kernel::Segment_3 bottom_to_top(origin_bottom, destination_top);
+                auto result = CGAL::intersection(top_to_bottom, bottom_to_top);
+                if (result) {
+                  Kernel::Point_3 *intersection_point = boost::get<Kernel::Point_3>(&*result);
+                  
+                } else {
+                  std::cout << "Error: bowtie intersection point not found" << std::endl;
+                }
 //                current_polygon->extra_triangles.push_back(Triangle(destination_top, origin_top, origin_bottom));
 //                current_polygon->extra_triangles.push_back(Triangle(origin_bottom, destination_bottom, destination_top));
               }
