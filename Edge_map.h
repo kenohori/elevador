@@ -27,7 +27,16 @@ struct Edge_map {
   void insert(typename Kernel::Point_2 &origin, typename Kernel::Point_2 &destination, std::vector<Polygon>::iterator polygon, typename Triangulation::Face_handle face, int opposite_vertex) {
     CGAL_assertion(face->vertex(face->ccw(opposite_vertex))->point() == origin);
     CGAL_assertion(face->vertex(face->cw(opposite_vertex))->point() == destination);
-    edges[origin][destination].adjacent_faces.push_back(Adjacent_face<Triangulation>(polygon, face, opposite_vertex));
+    bool found = false;
+    for (auto &adjacent_face: edges[origin][destination].adjacent_faces) {
+      if (adjacent_face.polygon == polygon) {
+        found = true;
+        adjacent_face.face = face;
+        adjacent_face.opposite_vertex = opposite_vertex;
+      }
+    } if (!found) {
+      edges[origin][destination].adjacent_faces.push_back(Adjacent_face<Triangulation>(polygon, face, opposite_vertex));
+    }
   }
   
   void check_consistency() {
