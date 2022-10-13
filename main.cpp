@@ -248,23 +248,6 @@ int triangulate_polygons(std::vector<Polygon> &map_polygons) {
   // Triangulate polygons
   for (auto &polygon: map_polygons) {
     
-    // Triangle (optimisation)
-    if (polygon.outer_ring.points.size() == 4 && polygon.inner_rings.size() == 0) {
-      if (polygon.outer_ring.points[0] != polygon.outer_ring.points[1] &&
-          polygon.outer_ring.points[1] != polygon.outer_ring.points[2] &&
-          polygon.outer_ring.points[2] != polygon.outer_ring.points[0]) {
-        polygon.triangulation.insert(polygon.outer_ring.points[0]);
-        polygon.triangulation.insert(polygon.outer_ring.points[1]);
-        polygon.triangulation.insert(polygon.outer_ring.points[2]);
-        for (Triangulation::Finite_faces_iterator current_face = polygon.triangulation.finite_faces_begin();
-             current_face != polygon.triangulation.finite_faces_end();
-             ++current_face) current_face->info().interior = true;
-      } else {
-        std::cout << "Warning: degenerate triangle (identical vertices)..." << std::endl;
-        polygon.triangulation.clear();
-      }
-    }
-    
     // Polygons
     else {
       
