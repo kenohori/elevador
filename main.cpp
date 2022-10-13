@@ -1005,8 +1005,8 @@ int write_terrain_obj(const char *output_terrain, Triangulation &terrain) {
 
 int main(int argc, const char * argv[]) {
   
-  const char *input_map = "/Users/ken/Downloads/3dfier_os/osmm/osmm.gpkg";
-  const char *input_point_cloud = "/Users/ken/Downloads/3dfier_os/osmm/Exeter_VOLTAtest.laz";
+  const char *input_map = "/Users/ken/Library/Mobile Documents/com~apple~CloudDocs/Teaching/volta/data/vector/osmm.gpkg";
+  const char *input_point_cloud = "/Users/ken/Library/Mobile Documents/com~apple~CloudDocs/Teaching/volta/data/point cloud/Exeter_VOLTAtest.laz";
   const char *output_terrain = "/Users/ken/Downloads/terrain.obj";
   const char *output_obj = "/Users/ken/Downloads/exeter.obj";
   const char *output_cityjson = "/Users/ken/Downloads/exeter.json";
