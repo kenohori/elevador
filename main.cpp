@@ -730,18 +730,50 @@ int create_vertical_walls(std::vector<Polygon> &map_polygons, Edge_index &edge_i
               destination_elevations.insert(opposite_side_origin->info().z);
             }
             
-            // Build vertical wall
-            if (origin_elevations.size() == 2 && destination_elevations.size() == 2 &&
-                origin->info().z == *origin_elevations.rbegin() &&
-                destination->info().z == *destination_elevations.rbegin()) {
-              Kernel::Point_3 origin_top(origin->point().x(), origin->point().y(), *origin_elevations.rbegin());
-              Kernel::Point_3 destination_top(destination->point().x(), destination->point().y(), *destination_elevations.rbegin());
-              Kernel::Point_3 origin_bottom(origin->point().x(), origin->point().y(), *origin_elevations.begin());
-              Kernel::Point_3 destination_bottom(destination->point().x(), destination->point().y(), *destination_elevations.begin());
-              current_polygon->extra_triangles.push_back(Triangle(destination_top, origin_top, origin_bottom));
-              current_polygon->extra_triangles.push_back(Triangle(origin_bottom, destination_bottom, destination_top));
+            // Vertical wall is not needed
+            if (origin_elevations.size() == 1 && destination_elevations.size() == 1) continue;
+
+            // Quad-like
+            if (origin_elevations.size() == 2 && destination_elevations.size() == 2) {
+              
+              // Quad (from top to avoid duplicates)
+              if (origin->info().z == *origin_elevations.rbegin() && destination->info().z == *destination_elevations.rbegin()) {
+                Kernel::Point_3 origin_top(origin->point().x(), origin->point().y(), *origin_elevations.rbegin());
+                Kernel::Point_3 destination_top(destination->point().x(), destination->point().y(), *destination_elevations.rbegin());
+                Kernel::Point_3 origin_bottom(origin->point().x(), origin->point().y(), *origin_elevations.begin());
+                Kernel::Point_3 destination_bottom(destination->point().x(), destination->point().y(), *destination_elevations.begin());
+                current_polygon->extra_triangles.push_back(Triangle(destination_top, origin_top, origin_bottom));
+                current_polygon->extra_triangles.push_back(Triangle(origin_bottom, destination_bottom, destination_top));
+              }
+              
+              // Bowtie (from origin at top and destination at bottom to avoid duplicates)
+              else if (origin->info().z == *origin_elevations.rbegin() && destination->info().z == *destination_elevations.begin()) {
+                std::cout << "Unsupported case: bowtie" << std::endl;
+//                Kernel::Point_3 origin_top(origin->point().x(), origin->point().y(), *origin_elevations.rbegin());
+//                Kernel::Point_3 destination_top(destination->point().x(), destination->point().y(), *destination_elevations.rbegin());
+//                Kernel::Point_3 origin_bottom(origin->point().x(), origin->point().y(), *origin_elevations.begin()+10.0);
+//                Kernel::Point_3 destination_bottom(destination->point().x(), destination->point().y(), *destination_elevations.begin()+10.0);
+//                current_polygon->extra_triangles.push_back(Triangle(destination_top, origin_top, origin_bottom));
+//                current_polygon->extra_triangles.push_back(Triangle(origin_bottom, destination_bottom, destination_top));
+              }
+            }
+              
+            // Triangle (from 2 origin elevations and 1 destination elevation to avoid duplicates)
+            else if (origin_elevations.size() == 2 && destination_elevations.size() == 1) {
+              std::cout << "Unsupported case: triangle" << std::endl;
+//              Kernel::Point_3 origin_top(origin->point().x(), origin->point().y(), *origin_elevations.rbegin());
+//              Kernel::Point_3 origin_bottom(origin->point().x(), origin->point().y(), *origin_elevations.begin());
+//              Kernel::Point_3 destination_only(destination->point().x(), destination->point().y(), destination->info().z);
+//              current_polygon->extra_triangles.push_back(Triangle(destination_only, origin_top, origin_bottom));
             }
             
+            // Skip other triangle case
+            else if (origin_elevations.size() == 1 && destination_elevations.size() == 2);
+            
+            // TODO: Warn for other cases (overlapping polygons)
+            else {
+              std::cout << "Unsupported case: " << origin_elevations.size() << " origin elevations and " << destination_elevations.size() << " destination elevations" << std::endl;
+            }
           }
         }
       }
