@@ -247,57 +247,53 @@ int triangulate_polygons(std::vector<Polygon> &map_polygons) {
   
   // Triangulate polygons
   for (auto &polygon: map_polygons) {
-    
-    // Polygons
-    else {
       
-      // Insert the edges of the polygon as constraints
-      std::vector<Kernel::Point_2>::const_iterator current_point = polygon.outer_ring.points.begin();
-      Triangulation::Vertex_handle current_vertex = polygon.triangulation.insert(*current_point);
+    // Insert the edges of the polygon as constraints
+    std::vector<Kernel::Point_2>::const_iterator current_point = polygon.outer_ring.points.begin();
+    Triangulation::Vertex_handle current_vertex = polygon.triangulation.insert(*current_point);
+    ++current_point;
+    Triangulation::Vertex_handle previous_vertex;
+    while (current_point != polygon.outer_ring.points.end()) {
+      previous_vertex = current_vertex;
+      current_vertex = polygon.triangulation.insert(*current_point);
+      if (previous_vertex != current_vertex) polygon.triangulation.odd_even_insert_constraint(previous_vertex, current_vertex);
       ++current_point;
-      Triangulation::Vertex_handle previous_vertex;
-      while (current_point != polygon.outer_ring.points.end()) {
+    } for (auto const &ring: polygon.inner_rings) {
+      current_point = ring.points.begin();
+      current_vertex = polygon.triangulation.insert(*current_point);
+      while (current_point != ring.points.end()) {
         previous_vertex = current_vertex;
         current_vertex = polygon.triangulation.insert(*current_point);
         if (previous_vertex != current_vertex) polygon.triangulation.odd_even_insert_constraint(previous_vertex, current_vertex);
         ++current_point;
-      } for (auto const &ring: polygon.inner_rings) {
-        current_point = ring.points.begin();
-        current_vertex = polygon.triangulation.insert(*current_point);
-        while (current_point != ring.points.end()) {
-          previous_vertex = current_vertex;
-          current_vertex = polygon.triangulation.insert(*current_point);
-          if (previous_vertex != current_vertex) polygon.triangulation.odd_even_insert_constraint(previous_vertex, current_vertex);
-          ++current_point;
-        }
-      } if (polygon.triangulation.number_of_faces() == 0) {
-        std::cout << "Warning: degenerate polygon (no triangles after insertion of constraints)..." << std::endl;
-        continue;
       }
-      
-      // Label the triangles to find out interior/exterior
-      std::list<Triangulation::Face_handle> to_check;
-      polygon.triangulation.infinite_face()->info().processed = true;
-      CGAL_assertion(polygon.triangulation.infinite_face()->info().processed == true);
-      CGAL_assertion(polygon.triangulation.infinite_face()->info().interior == false);
-      to_check.push_back(polygon.triangulation.infinite_face());
-      while (!to_check.empty()) {
-        CGAL_assertion(to_check.front()->info().processed == true);
-        for (int neighbour = 0; neighbour < 3; ++neighbour) {
-          if (to_check.front()->neighbor(neighbour)->info().processed == true) {
+    } if (polygon.triangulation.number_of_faces() == 0) {
+      std::cout << "Warning: degenerate polygon (no triangles after insertion of constraints)..." << std::endl;
+      continue;
+    }
+    
+    // Label the triangles to find out interior/exterior
+    std::list<Triangulation::Face_handle> to_check;
+    polygon.triangulation.infinite_face()->info().processed = true;
+    CGAL_assertion(polygon.triangulation.infinite_face()->info().processed == true);
+    CGAL_assertion(polygon.triangulation.infinite_face()->info().interior == false);
+    to_check.push_back(polygon.triangulation.infinite_face());
+    while (!to_check.empty()) {
+      CGAL_assertion(to_check.front()->info().processed == true);
+      for (int neighbour = 0; neighbour < 3; ++neighbour) {
+        if (to_check.front()->neighbor(neighbour)->info().processed == true) {
+        } else {
+          to_check.front()->neighbor(neighbour)->info().processed = true;
+          CGAL_assertion(to_check.front()->neighbor(neighbour)->info().processed == true);
+          if (polygon.triangulation.is_constrained(Triangulation::Edge(to_check.front(), neighbour))) {
+            to_check.front()->neighbor(neighbour)->info().interior = !to_check.front()->info().interior;
+            to_check.push_back(to_check.front()->neighbor(neighbour));
           } else {
-            to_check.front()->neighbor(neighbour)->info().processed = true;
-            CGAL_assertion(to_check.front()->neighbor(neighbour)->info().processed == true);
-            if (polygon.triangulation.is_constrained(Triangulation::Edge(to_check.front(), neighbour))) {
-              to_check.front()->neighbor(neighbour)->info().interior = !to_check.front()->info().interior;
-              to_check.push_back(to_check.front()->neighbor(neighbour));
-            } else {
-              to_check.front()->neighbor(neighbour)->info().interior = to_check.front()->info().interior;
-              to_check.push_back(to_check.front()->neighbor(neighbour));
-            }
+            to_check.front()->neighbor(neighbour)->info().interior = to_check.front()->info().interior;
+            to_check.push_back(to_check.front()->neighbor(neighbour));
           }
-        } to_check.pop_front();
-      }
+        }
+      } to_check.pop_front();
     }
     
     // Check if the result isn't degenerate
@@ -752,12 +748,12 @@ int create_vertical_walls(std::vector<Polygon> &map_polygons, Edge_index &edge_i
               // Bowtie (from origin at top and destination at bottom to avoid duplicates)
               else if (origin->info().z == *origin_elevations.rbegin() && destination->info().z == *destination_elevations.begin()) {
                 std::cout << "Unsupported case: bowtie" << std::endl;
-                Kernel::Point_3 origin_top(origin->point().x(), origin->point().y(), *origin_elevations.rbegin());
-                Kernel::Point_3 destination_top(destination->point().x(), destination->point().y(), *destination_elevations.rbegin());
-                Kernel::Point_3 origin_bottom(origin->point().x(), origin->point().y(), *origin_elevations.begin()+10.0);
-                Kernel::Point_3 destination_bottom(destination->point().x(), destination->point().y(), *destination_elevations.begin()+10.0);
-                current_polygon->extra_triangles.push_back(Triangle(destination_top, origin_top, origin_bottom));
-                current_polygon->extra_triangles.push_back(Triangle(origin_bottom, destination_bottom, destination_top));
+//                Kernel::Point_3 origin_top(origin->point().x(), origin->point().y(), *origin_elevations.rbegin());
+//                Kernel::Point_3 destination_top(destination->point().x(), destination->point().y(), *destination_elevations.rbegin());
+//                Kernel::Point_3 origin_bottom(origin->point().x(), origin->point().y(), *origin_elevations.begin()+50.0);
+//                Kernel::Point_3 destination_bottom(destination->point().x(), destination->point().y(), *destination_elevations.begin()+50.0);
+//                current_polygon->extra_triangles.push_back(Triangle(destination_top, origin_top, origin_bottom));
+//                current_polygon->extra_triangles.push_back(Triangle(origin_bottom, destination_bottom, destination_top));
               }
             }
               
