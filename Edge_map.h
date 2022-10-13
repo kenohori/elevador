@@ -25,7 +25,20 @@ struct Edge_map {
   std::unordered_map<typename Kernel::Point_2, std::unordered_map<typename Kernel::Point_2, Edge<Triangulation>>> edges;
   
   void insert(typename Kernel::Point_2 &origin, typename Kernel::Point_2 &destination, std::vector<Polygon>::iterator polygon, typename Triangulation::Face_handle face, int opposite_vertex) {
+    CGAL_assertion(face->vertex(face->ccw(opposite_vertex))->point() == origin);
+    CGAL_assertion(face->vertex(face->cw(opposite_vertex))->point() == destination);
     edges[origin][destination].adjacent_faces.push_back(Adjacent_face<Triangulation>(polygon, face, opposite_vertex));
+  }
+  
+  void check_consistency() {
+    for (auto const &directed_edges_from_source_vertex: edges) {
+      for (auto const &adjacent_faces_with_destination_vertex: directed_edges_from_source_vertex.second) {
+        for (auto const &adjacent_face: adjacent_faces_with_destination_vertex.second.adjacent_faces) {
+          CGAL_assertion(adjacent_face.face->vertex(adjacent_face.face->ccw(adjacent_face.opposite_vertex))->point() == directed_edges_from_source_vertex.first);
+          CGAL_assertion(adjacent_face.face->vertex(adjacent_face.face->cw(adjacent_face.opposite_vertex))->point() == adjacent_faces_with_destination_vertex.first);
+        }
+      }
+    }
   }
   
   std::size_t size() const {
