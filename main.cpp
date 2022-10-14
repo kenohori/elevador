@@ -39,7 +39,8 @@ typedef CGAL::Constrained_Delaunay_triangulation_2<Kernel, Triangulation_data_st
 typedef Enhanced_constrained_triangulation_2<Constrained_delaunay_triangulation> Triangulation;
 typedef CGAL::Point_set_3<Kernel::Point_3> Point_cloud;
 typedef Quadtree_node<Kernel, Point_cloud> Point_index;
-typedef Edge_map<Kernel, Triangulation> Edge_index;
+struct Polygon;
+typedef Edge_map<Kernel, Triangulation, Polygon> Edge_index;
 
 struct Vertex_info {
   Kernel::FT z;
@@ -391,25 +392,13 @@ int index_map(Map &map, Edge_index &edges_index) {
   
   // Index edges
   for (std::vector<Polygon>::iterator current_polygon = map.polygons.begin(); current_polygon != map.polygons.end(); ++current_polygon) {
-    for (auto const &face: current_polygon->triangulation.finite_face_handles()) {
-      if (face->info().interior) {
-        for (int opposite_vertex = 0; opposite_vertex < 3; ++opposite_vertex) {
-          if (face->neighbor(opposite_vertex) == current_polygon->triangulation.infinite_face() ||
-              !face->neighbor(opposite_vertex)->info().interior) {
-            Triangulation::Vertex_handle origin = face->vertex(face->ccw(opposite_vertex));
-            Triangulation::Vertex_handle destination = face->vertex(face->cw(opposite_vertex));
-            CGAL_assertion(CGAL::orientation(origin->point(), destination->point(), face->vertex(opposite_vertex)->point()) == CGAL::COUNTERCLOCKWISE);
-            edges_index.insert(origin->point(), destination->point(), current_polygon, face, opposite_vertex);
-          }
-        }
-      }
-    }
+    edges_index.insert(current_polygon);
   }
   
   // Print index stats
 //  edges_index.print_info();
   
-  // Print extent
+  // Compute extent
   Kernel::FT x_min = map.polygons.front().x_min;
   Kernel::FT x_max = map.polygons.front().x_max;
   Kernel::FT y_min = map.polygons.front().y_min;
@@ -426,22 +415,6 @@ int index_map(Map &map, Edge_index &edges_index) {
   std::cout << " using ";
   print_memory_usage();
   return 0;
-}
-
-int index_polygon(std::vector<Polygon>::iterator current_polygon, Edge_index &edges_index) {
-  for (auto const &face: current_polygon->triangulation.finite_face_handles()) {
-    if (face->info().interior) {
-      for (int opposite_vertex = 0; opposite_vertex < 3; ++opposite_vertex) {
-        if (face->neighbor(opposite_vertex) == current_polygon->triangulation.infinite_face() ||
-            !face->neighbor(opposite_vertex)->info().interior) {
-          Triangulation::Vertex_handle origin = face->vertex(face->ccw(opposite_vertex));
-          Triangulation::Vertex_handle destination = face->vertex(face->cw(opposite_vertex));
-          CGAL_assertion(CGAL::orientation(origin->point(), destination->point(), face->vertex(opposite_vertex)->point()) == CGAL::COUNTERCLOCKWISE);
-          edges_index.insert(origin->point(), destination->point(), current_polygon, face, opposite_vertex);
-        }
-      }
-    }
-  } return 0;
 }
 
 int load_point_cloud(const char *input_point_cloud, Point_cloud &point_cloud) {
@@ -475,7 +448,7 @@ int load_point_cloud(const char *input_point_cloud, Point_cloud &point_cloud) {
   return 0;
 }
 
-int index_point_cloud(Point_cloud &point_cloud, Point_index &index) {
+int index_point_cloud(Point_cloud &point_cloud, Point_index &index, bool print_stats = true) {
   
   const int bucket_size = 100;
   const int maximum_depth = 10;
@@ -487,12 +460,12 @@ int index_point_cloud(Point_cloud &point_cloud, Point_index &index) {
   index.optimise(point_cloud, bucket_size, maximum_depth);
   
   // Print quadtree info
-//  index.print_info();
-  std::cout << "Indexed " << point_cloud.size() << " point cloud points in ";
-  print_timer(start_time);
-  std::cout << " using ";
-  print_memory_usage();
-  return 0;
+  if (print_stats) {
+    std::cout << "Indexed " << point_cloud.size() << " point cloud points in ";
+    print_timer(start_time);
+    std::cout << " using ";
+    print_memory_usage();
+  } return 0;
 }
 
 int create_terrain_tin(Map &map, Point_cloud &point_cloud, Point_index &index, Triangulation &terrain) {
@@ -545,7 +518,7 @@ int create_terrain_tin(Map &map, Point_cloud &point_cloud, Point_index &index, T
   
   // Index DTM
   Point_index dtm_index;
-  index_point_cloud(dtm_point_cloud, dtm_index);
+  index_point_cloud(dtm_point_cloud, dtm_index, false);
   
   // Smoothen
   Point_cloud smooth_dtm_point_cloud;
