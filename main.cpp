@@ -283,17 +283,13 @@ int triangulate_polygons(Map &map) {
     // Delete degenerate polygons and rings
     if (current_polygon->outer_ring.points.size() < 4) {
       std::cout << "Deleting polygon with < 3 vertices..." << std::endl;
-      auto polygon_to_erase = current_polygon;
-      ++current_polygon;
-      map.polygons.erase(polygon_to_erase);
+      current_polygon = map.polygons.erase(current_polygon);
       continue;
     } auto current_ring = current_polygon->inner_rings.begin();
     while (current_ring != current_polygon->inner_rings.end()) {
       if (current_ring->points.size() < 4) {
         std::cout << "Deleting ring with < 3 vertices..." << std::endl;
-        auto ring_to_erase = current_ring;
-        ++current_ring;
-        current_polygon->inner_rings.erase(ring_to_erase);
+        current_ring = current_polygon->inner_rings.erase(current_ring);
         continue;
       } ++current_ring;
     }
@@ -326,9 +322,7 @@ int triangulate_polygons(Map &map) {
       }
     } if (current_polygon->triangulation.number_of_faces() == 0) {
       std::cout << "Deleting degenerate polygon (no triangles after insertion of constraints)..." << std::endl;
-      auto polygon_to_erase = current_polygon;
-      ++current_polygon;
-      map.polygons.erase(polygon_to_erase);
+      current_polygon = map.polygons.erase(current_polygon);
       continue;
     }
     
@@ -341,9 +335,7 @@ int triangulate_polygons(Map &map) {
       if (current_face->info().interior) ++interior_triangles;
     } if (interior_triangles == 0) {
       std::cout << "Deleting degenerate polygon (no interior triangles)..." << std::endl;
-      auto polygon_to_erase = current_polygon;
-      ++current_polygon;
-      map.polygons.erase(polygon_to_erase);
+      current_polygon = map.polygons.erase(current_polygon);
       continue;
     }
     
@@ -775,12 +767,14 @@ int create_vertical_walls(Map &map, Edge_index &edge_index) {
 //                  for (auto const &same_side_face: edge_index.edges[origin->point()][destination->point()].adjacent_faces) {
 //                    same_side_face.polygon->triangulation.insert(intersection_point_2d);
 //                    label_polygon(*same_side_face.polygon);
+//                    edge_index.erase(same_side_face.polygon);
+//                    edge_index.insert(same_side_face.polygon);
 //                  } for (auto const &opposite_side_face: edge_index.edges[destination->point()][origin->point()].adjacent_faces) {
 //                    opposite_side_face.polygon->triangulation.insert(intersection_point_2d);
 //                    label_polygon(*opposite_side_face.polygon);
-//                  } edge_index.edges[origin->point()].erase(destination->point());
-//                  edge_index.edges[destination->point()].erase(origin->point());
-//                  index_polygon(current_polygon, edge_index);
+//                    edge_index.erase(opposite_side_face.polygon);
+//                    edge_index.insert(opposite_side_face.polygon);
+//                  }
 //                  current_polygon->extra_triangles.push_back(Triangle(origin_bottom, origin_top, *intersection_point));
 //                  current_polygon->extra_triangles.push_back(Triangle(destination_bottom, destination_top, *intersection_point));
                 } else {
@@ -800,7 +794,7 @@ int create_vertical_walls(Map &map, Edge_index &edge_index) {
             // Skip other triangle case
             else if (origin_elevations.size() == 1 && destination_elevations.size() == 2);
             
-            // TODO: Warn for other cases (overlapping polygons)
+            // Warn for other cases (overlapping polygons)
             else {
               std::cout << "Unsupported case: " << origin_elevations.size() << " origin elevations and " << destination_elevations.size() << " destination elevations" << std::endl;
             }
@@ -1119,11 +1113,6 @@ int compute_height_stats(Map &map, Point_cloud &point_cloud, Point_index &index,
         polygon.attributes["3d_rel_elevation_99"] = std::to_string(elevation_99-base_elevation);
       }
       
-      // TODO: If there are no points
-      else {
-        std::cout << "No points in polygon!" << std::endl;
-      }
-      
       ++n_polygons;
     }
   }
@@ -1159,9 +1148,9 @@ int main(int argc, const char * argv[]) {
   index_point_cloud(point_cloud, point_cloud_index);
   create_terrain_tin(map, point_cloud, point_cloud_index, terrain);
   write_terrain_obj(output_terrain, terrain);
-  lift_flat_polygons(map, "Building", point_cloud, point_cloud_index, 0.9);
+  lift_flat_polygons(map, "Building", point_cloud, point_cloud_index, 0.7);
   compute_height_stats(map, point_cloud, point_cloud_index, terrain);
-  lift_flat_polygons(map, "WaterBody", point_cloud, point_cloud_index, 0.1);
+  lift_flat_polygons(map, "WaterBody", point_cloud, point_cloud_index, 0.05);
   lift_polygon_vertices(map, "Road", terrain);
   lift_polygon_vertices(map, "Railway", terrain);
   lift_polygon_vertices(map, "Bridge", terrain);

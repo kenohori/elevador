@@ -54,6 +54,21 @@ struct Edge_map {
     }
   }
   
+  void erase(typename std::vector<Polygon>::iterator current_polygon) {
+    for (auto &directed_edges_from_source_vertex: edges) {
+      for (auto &adjacent_faces_with_destination_vertex: directed_edges_from_source_vertex.second) {
+        typename std::vector<Adjacent_face<Triangulation, Polygon>>::iterator current_adjacent_face = adjacent_faces_with_destination_vertex.second.adjacent_faces.begin();
+        while (current_adjacent_face != adjacent_faces_with_destination_vertex.second.adjacent_faces.end()) {
+          if (current_adjacent_face->polygon == current_polygon) {
+            current_adjacent_face = adjacent_faces_with_destination_vertex.second.adjacent_faces.erase(current_adjacent_face);
+          } else {
+            ++current_adjacent_face;
+          }
+        }
+      }
+    }
+  }
+  
   void check_consistency() {
     for (auto const &directed_edges_from_source_vertex: edges) {
       for (auto const &adjacent_faces_with_destination_vertex: directed_edges_from_source_vertex.second) {
