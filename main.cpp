@@ -1036,7 +1036,7 @@ int write_3dcm_cityjson(const char *output_3dcm, Map &map) {
   ++num_polygons;
   }
   
-  output_stream << cityjson.dump(2) << std::endl;
+  output_stream << cityjson.dump() << std::endl;
   output_stream.close();
   std::cout << "Wrote 3D city model in ";
   print_timer(start_time);
@@ -1078,7 +1078,87 @@ int write_terrain_obj(const char *output_terrain, Triangulation &terrain) {
   return 0;
 }
 
-int compute_height_stats() {
+int compute_height_stats(Map &map, Point_cloud &point_cloud, Point_index &index, Triangulation &terrain) {
+  clock_t start_time = clock();
+  std::size_t n_polygons = 0;
+  for (auto &polygon: map.polygons) {
+    if (polygon.cityjson_class == "Building") {
+      
+      // Compute elevation of building base
+      std::vector<Kernel::FT> base_elevations;
+      for (Triangulation::Finite_vertices_iterator current_vertex = polygon.triangulation.finite_vertices_begin();
+           current_vertex != polygon.triangulation.finite_vertices_end();
+           ++current_vertex) {
+        Triangulation::Face_handle face_of_point = terrain.locate(current_vertex->point());
+        std::vector<Kernel::FT> barycentric_coordinates;
+        CGAL::Barycentric_coordinates::triangle_coordinates_2(face_of_point->vertex(0)->point(),
+                                                              face_of_point->vertex(1)->point(),
+                                                              face_of_point->vertex(2)->point(),
+                                                              current_vertex->point(),
+                                                              std::back_inserter(barycentric_coordinates));
+        base_elevations.push_back(barycentric_coordinates[0]*face_of_point->vertex(0)->info().z +
+                                  barycentric_coordinates[1]*face_of_point->vertex(1)->info().z +
+                                  barycentric_coordinates[2]*face_of_point->vertex(2)->info().z);
+        
+      } std::sort(base_elevations.begin(), base_elevations.end());
+      Kernel::FT base_elevation = base_elevations.front();
+      
+      // Find index nodes overlapping the polygon bbox
+      std::vector<Point_index *> intersected_nodes;
+      index.find_intersections(intersected_nodes, polygon.x_min, polygon.x_max, polygon.y_min, polygon.y_max);
+      
+      // Find PC points overlapping the polygon
+      std::vector<Point_cloud::Index> points_in_polygon;
+      for (auto const &node: intersected_nodes) {
+        for (auto const &point_index: node->points) {
+          Triangulation::Face_handle face = polygon.triangulation.locate(Kernel::Point_2(point_cloud.point(point_index).x(),
+                                                                                         point_cloud.point(point_index).y()));
+          if (!polygon.triangulation.is_infinite(face) && face->info().interior) points_in_polygon.push_back(point_index);
+        }
+      }
+      
+      // If there are points, use those
+      if (!points_in_polygon.empty()) {
+        
+        // Sort elevations to obtain elevation
+        std::vector<Kernel::FT> roof_elevations;
+        for (auto const &point_index: points_in_polygon) roof_elevations.push_back(point_cloud.point(point_index).z());
+        std::sort(roof_elevations.begin(), roof_elevations.end());
+        
+        Kernel::FT elevation_01 = roof_elevations[std::floor(0.01*roof_elevations.size())];
+        Kernel::FT elevation_10 = roof_elevations[std::floor(0.1*roof_elevations.size())];
+        Kernel::FT elevation_50 = roof_elevations[std::floor(0.5*roof_elevations.size())];
+        Kernel::FT elevation_70 = roof_elevations[std::floor(0.7*roof_elevations.size())];
+        Kernel::FT elevation_90 = roof_elevations[std::floor(0.9*roof_elevations.size())];
+        Kernel::FT elevation_99 = roof_elevations[std::floor(0.99*roof_elevations.size())];
+        
+        polygon.attributes["3d_abs_elevation_01"] = std::to_string(elevation_01);
+        polygon.attributes["3d_abs_elevation_10"] = std::to_string(elevation_10);
+        polygon.attributes["3d_abs_elevation_50"] = std::to_string(elevation_50);
+        polygon.attributes["3d_abs_elevation_70"] = std::to_string(elevation_70);
+        polygon.attributes["3d_abs_elevation_90"] = std::to_string(elevation_90);
+        polygon.attributes["3d_abs_elevation_99"] = std::to_string(elevation_99);
+        polygon.attributes["3d_rel_elevation_01"] = std::to_string(elevation_01-base_elevation);
+        polygon.attributes["3d_rel_elevation_10"] = std::to_string(elevation_10-base_elevation);
+        polygon.attributes["3d_rel_elevation_50"] = std::to_string(elevation_50-base_elevation);
+        polygon.attributes["3d_rel_elevation_70"] = std::to_string(elevation_70-base_elevation);
+        polygon.attributes["3d_rel_elevation_90"] = std::to_string(elevation_90-base_elevation);
+        polygon.attributes["3d_rel_elevation_99"] = std::to_string(elevation_99-base_elevation);
+      }
+      
+      // TODO: If there are no points
+      else {
+        std::cout << "No points in polygon!" << std::endl;
+      }
+      
+      ++n_polygons;
+    }
+  }
+  
+  std::cout << "Computed height stats for " << n_polygons << " polygons in ";
+  print_timer(start_time);
+  std::cout << " using ";
+  print_memory_usage();
   return 0;
 }
 
@@ -1102,20 +1182,21 @@ int main(int argc, const char * argv[]) {
   
   load_map(input_map, map);
   triangulate_polygons(map);
-//  load_point_cloud(input_point_cloud, point_cloud);
-//  index_point_cloud(point_cloud, point_cloud_index);
-//  create_terrain_tin(map, point_cloud, point_cloud_index, terrain);
-//  write_terrain_obj(output_terrain, terrain);
-//  lift_flat_polygons(map, "Building", point_cloud, point_cloud_index, 0.9);
-//  lift_flat_polygons(map, "WaterBody", point_cloud, point_cloud_index, 0.1);
-//  lift_polygon_vertices(map, "Road", terrain);
-//  lift_polygon_vertices(map, "Railway", terrain);
-//  lift_polygon_vertices(map, "Bridge", terrain);
-//  lift_polygons(map, "PlantCover", terrain);
-//  lift_polygons(map, "LandUse", terrain);
-//  index_map(map, edge_index);
-//  create_vertical_walls(map, edge_index);
-//  write_3dcm_obj(output_obj, map);
+  load_point_cloud(input_point_cloud, point_cloud);
+  index_point_cloud(point_cloud, point_cloud_index);
+  create_terrain_tin(map, point_cloud, point_cloud_index, terrain);
+  write_terrain_obj(output_terrain, terrain);
+  lift_flat_polygons(map, "Building", point_cloud, point_cloud_index, 0.9);
+  compute_height_stats(map, point_cloud, point_cloud_index, terrain);
+  lift_flat_polygons(map, "WaterBody", point_cloud, point_cloud_index, 0.1);
+  lift_polygon_vertices(map, "Road", terrain);
+  lift_polygon_vertices(map, "Railway", terrain);
+  lift_polygon_vertices(map, "Bridge", terrain);
+  lift_polygons(map, "PlantCover", terrain);
+  lift_polygons(map, "LandUse", terrain);
+  index_map(map, edge_index);
+  create_vertical_walls(map, edge_index);
+  write_3dcm_obj(output_obj, map);
   write_3dcm_cityjson(output_cityjson, map);
   
   return 0;
