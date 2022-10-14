@@ -87,7 +87,6 @@ struct Edge_map {
     
     // Check if everything is indexed
     for (typename std::vector<Polygon>::iterator current_polygon = polygons.begin(); current_polygon != polygons.end(); ++current_polygon) {
-//      for (auto const &current_face: current_polygon->triangulation.finite_face_handles()) {
       for (typename Triangulation::Finite_faces_iterator current_face = current_polygon->triangulation.finite_faces_begin();
            current_face != current_polygon->triangulation.finite_faces_end();
            ++current_face) {
