@@ -700,7 +700,9 @@ int create_vertical_walls(Map &map, Edge_index &edge_index) {
   clock_t start_time = clock();
   
   // For every border edge in map polygon
-  for (std::vector<Polygon>::iterator current_polygon = map.polygons.begin(); current_polygon != map.polygons.end(); ++current_polygon) {
+  std::vector<Polygon>::iterator current_polygon = map.polygons.begin();
+  while (current_polygon != map.polygons.end()) {
+    bool modified_triangulation = false;
     for (auto const &face: current_polygon->triangulation.finite_face_handles()) {
       if (face->info().interior) {
         for (int opposite_vertex = 0; opposite_vertex < 3; ++opposite_vertex) {
@@ -711,10 +713,6 @@ int create_vertical_walls(Map &map, Edge_index &edge_index) {
             Triangulation::Vertex_handle origin = face->vertex(face->ccw(opposite_vertex));
             Triangulation::Vertex_handle destination = face->vertex(face->cw(opposite_vertex));
             CGAL_assertion(CGAL::orientation(origin->point(), destination->point(), face->vertex(opposite_vertex)->point()) == CGAL::COUNTERCLOCKWISE);
-            
-            // Edge isn't in index because it has been modified to process a bowtie (skip)
-            if (edge_index.edges.count(origin->point()) == 0 || edge_index.edges[origin->point()].count(destination->point()) == 0) continue;
-            if (edge_index.edges.count(destination->point()) == 0 || edge_index.edges[destination->point()].count(origin->point()) == 0) continue;
             
             // Get elevations at origin and destination
             std::set<Kernel::FT> origin_elevations, destination_elevations;
@@ -758,23 +756,34 @@ int create_vertical_walls(Map &map, Edge_index &edge_index) {
                 Kernel::Point_3 destination_top(destination->point().x(), destination->point().y(), *destination_elevations.rbegin());
                 Kernel::Point_3 origin_bottom(origin->point().x(), origin->point().y(), *origin_elevations.begin());
                 Kernel::Point_3 destination_bottom(destination->point().x(), destination->point().y(), *destination_elevations.begin());
+                std::cout << "\torigin top: (" << origin_top << ")" << std::endl;
+                std::cout << "\torigin bottom: (" << origin_bottom << ")" << std::endl;
+                std::cout << "\tdestination top: (" << destination_top << ")" << std::endl;
+                std::cout << "\tdestination bottom: (" << destination_bottom << ")" << std::endl;
                 Kernel::Segment_3 top_to_bottom(origin_top, destination_bottom);
                 Kernel::Segment_3 bottom_to_top(origin_bottom, destination_top);
                 auto result = CGAL::intersection(top_to_bottom, bottom_to_top);
                 if (result) {
                   Kernel::Point_3 *intersection_point = boost::get<Kernel::Point_3>(&*result);
                   Kernel::Point_2 intersection_point_2d(intersection_point->x(), intersection_point->y());
-//                  for (auto const &same_side_face: edge_index.edges[origin->point()][destination->point()].adjacent_faces) {
-//                    same_side_face.polygon->triangulation.insert(intersection_point_2d);
-//                    label_polygon(*same_side_face.polygon);
-//                    edge_index.erase(same_side_face.polygon);
-//                    edge_index.insert(same_side_face.polygon);
-//                  } for (auto const &opposite_side_face: edge_index.edges[destination->point()][origin->point()].adjacent_faces) {
-//                    opposite_side_face.polygon->triangulation.insert(intersection_point_2d);
-//                    label_polygon(*opposite_side_face.polygon);
-//                    edge_index.erase(opposite_side_face.polygon);
-//                    edge_index.insert(opposite_side_face.polygon);
-//                  }
+                  std::cout << "\tintersection at (" << intersection_point_2d << ")" << std::endl;
+                  Triangulation::Locate_type locate_type;
+                  int vertex_index;
+                  for (auto const &same_side_face: edge_index.edges[origin->point()][destination->point()].adjacent_faces) {
+                    same_side_face.polygon->triangulation.insert_in_edge(intersection_point_2d, same_side_face.face, same_side_face.opposite_vertex);
+                    label_polygon(*same_side_face.polygon);
+                    edge_index.erase(same_side_face.polygon);
+                    edge_index.check(map.polygons);
+                    edge_index.insert(same_side_face.polygon);
+                    edge_index.check(map.polygons);
+                  } for (auto const &opposite_side_face: edge_index.edges[destination->point()][origin->point()].adjacent_faces) {
+                    opposite_side_face.polygon->triangulation.insert_in_edge(intersection_point_2d, opposite_side_face.face, opposite_side_face.opposite_vertex);
+                    label_polygon(*opposite_side_face.polygon);
+                    edge_index.erase(opposite_side_face.polygon);
+                    edge_index.check(map.polygons);
+                    edge_index.insert(opposite_side_face.polygon);
+                    edge_index.check(map.polygons);
+                  } modified_triangulation = true;
 //                  current_polygon->extra_triangles.push_back(Triangle(origin_bottom, origin_top, *intersection_point));
 //                  current_polygon->extra_triangles.push_back(Triangle(destination_bottom, destination_top, *intersection_point));
                 } else {
@@ -799,8 +808,17 @@ int create_vertical_walls(Map &map, Edge_index &edge_index) {
               std::cout << "Unsupported case: " << origin_elevations.size() << " origin elevations and " << destination_elevations.size() << " destination elevations" << std::endl;
             }
           }
+          
+          if (modified_triangulation) break; // from iteration of face's (opposite) vertices
         }
       }
+      
+      if (modified_triangulation) break; // from iteration of triangulation faces
+    }
+    
+    // If the polygon's triangulation has been modified, we need to re-do the iteration=
+    if (!modified_triangulation) {
+      ++current_polygon;
     }
   }
   

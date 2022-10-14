@@ -69,12 +69,51 @@ struct Edge_map {
     }
   }
   
-  void check_consistency() {
+  void check(std::vector<Polygon> &polygons) {
+    
+    // Check if index is correct (origin and destination in specified vertices)
     for (auto const &directed_edges_from_source_vertex: edges) {
       for (auto const &adjacent_faces_with_destination_vertex: directed_edges_from_source_vertex.second) {
         for (auto const &adjacent_face: adjacent_faces_with_destination_vertex.second.adjacent_faces) {
-          CGAL_assertion(adjacent_face.face->vertex(adjacent_face.face->ccw(adjacent_face.opposite_vertex))->point() == directed_edges_from_source_vertex.first);
-          CGAL_assertion(adjacent_face.face->vertex(adjacent_face.face->cw(adjacent_face.opposite_vertex))->point() == adjacent_faces_with_destination_vertex.first);
+          typename Kernel::Point_2 source = adjacent_face.face->vertex(adjacent_face.face->ccw(adjacent_face.opposite_vertex))->point();
+          typename Kernel::Point_2 destination = adjacent_face.face->vertex(adjacent_face.face->cw(adjacent_face.opposite_vertex))->point();
+          typename Kernel::Point_2 other = adjacent_face.face->vertex(adjacent_face.opposite_vertex)->point();
+          CGAL_assertion(source == directed_edges_from_source_vertex.first);
+          CGAL_assertion(destination == adjacent_faces_with_destination_vertex.first);
+          CGAL_assertion(CGAL::orientation(source, destination, other) == CGAL::COUNTERCLOCKWISE);
+        }
+      }
+    }
+    
+    // Check if everything is indexed
+    for (typename std::vector<Polygon>::iterator current_polygon = polygons.begin(); current_polygon != polygons.end(); ++current_polygon) {
+//      for (auto const &current_face: current_polygon->triangulation.finite_face_handles()) {
+      for (typename Triangulation::Finite_faces_iterator current_face = current_polygon->triangulation.finite_faces_begin();
+           current_face != current_polygon->triangulation.finite_faces_end();
+           ++current_face) {
+        if (current_face->info().interior) {
+          for (int opposite_vertex = 0; opposite_vertex < 3; ++opposite_vertex) {
+            if (current_face->neighbor(opposite_vertex) == current_polygon->triangulation.infinite_face() ||
+                !current_face->neighbor(opposite_vertex)->info().interior) {
+              
+              // There should be an index entry for edge (origin and destination)
+              typename Triangulation::Vertex_handle origin = current_face->vertex(current_face->ccw(opposite_vertex));
+              typename Triangulation::Vertex_handle destination = current_face->vertex(current_face->cw(opposite_vertex));
+              CGAL_assertion(CGAL::orientation(origin->point(), destination->point(), current_face->vertex(opposite_vertex)->point()) == CGAL::COUNTERCLOCKWISE);
+              CGAL_assertion(edges.count(origin->point()) == 1);
+              CGAL_assertion(edges[origin->point()].count(destination->point()) == 1);
+              
+              // Check if face is indexed
+              bool face_found = false;
+              for (auto const &adjacent_face: edges[origin->point()][destination->point()].adjacent_faces) {
+                if (&*adjacent_face.face == &*current_face) {
+                  CGAL_assertion(adjacent_face.polygon == current_polygon);
+                  CGAL_assertion(adjacent_face.opposite_vertex == opposite_vertex);
+                  face_found = true;
+                }
+              } CGAL_assertion(face_found);
+            }
+          }
         }
       }
     }
