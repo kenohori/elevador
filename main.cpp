@@ -157,7 +157,8 @@ int load_map(const char *input_map, std::vector<Polygon> &map_polygons) {
         if (strcmp(input_feature->GetFieldDefnRef(current_field)->GetNameRef(), "citygmlclass") == 0) {
           cityjson_class = input_feature->GetFieldAsString("citygmlclass");
           continue;
-        } switch (input_feature->GetFieldDefnRef(current_field)->GetType()) {
+        } if (input_feature->IsFieldNull(current_field)) continue;
+        switch (input_feature->GetFieldDefnRef(current_field)->GetType()) {
           case OFTReal:
             attributes[input_feature->GetFieldDefnRef(current_field)->GetNameRef()] = std::to_string(input_feature->GetFieldAsDouble(current_field));
             break;
@@ -998,7 +999,7 @@ int write_3dcm_cityjson(const char *output_3dcm, std::vector<Polygon> &map_polyg
   ++num_polygons;
   }
   
-  output_stream << cityjson.dump() << std::endl;
+  output_stream << cityjson.dump(2) << std::endl;
   output_stream.close();
   std::cout << "Wrote 3D city model in ";
   print_timer(start_time);
@@ -1060,20 +1061,20 @@ int main(int argc, const char * argv[]) {
   
   load_map(input_map, map_polygons);
   triangulate_polygons(map_polygons);
-  load_point_cloud(input_point_cloud, point_cloud);
-  index_point_cloud(point_cloud, point_cloud_index);
-  create_terrain_tin(map_polygons, point_cloud, point_cloud_index, terrain);
-  write_terrain_obj(output_terrain, terrain);
-  lift_flat_polygons(map_polygons, "Building", point_cloud, point_cloud_index, 0.7);
-  lift_flat_polygons(map_polygons, "WaterBody", point_cloud, point_cloud_index, 0.1);
-  lift_polygon_vertices(map_polygons, "Road", terrain);
-  lift_polygon_vertices(map_polygons, "Railway", terrain);
-  lift_polygon_vertices(map_polygons, "Bridge", terrain);
-  lift_polygons(map_polygons, "PlantCover", terrain);
-  lift_polygons(map_polygons, "LandUse", terrain);
-  index_map(map_polygons, edge_index);
-  create_vertical_walls(map_polygons, edge_index);
-  write_3dcm_obj(output_obj, map_polygons);
+//  load_point_cloud(input_point_cloud, point_cloud);
+//  index_point_cloud(point_cloud, point_cloud_index);
+//  create_terrain_tin(map_polygons, point_cloud, point_cloud_index, terrain);
+//  write_terrain_obj(output_terrain, terrain);
+//  lift_flat_polygons(map_polygons, "Building", point_cloud, point_cloud_index, 0.7);
+//  lift_flat_polygons(map_polygons, "WaterBody", point_cloud, point_cloud_index, 0.1);
+//  lift_polygon_vertices(map_polygons, "Road", terrain);
+//  lift_polygon_vertices(map_polygons, "Railway", terrain);
+//  lift_polygon_vertices(map_polygons, "Bridge", terrain);
+//  lift_polygons(map_polygons, "PlantCover", terrain);
+//  lift_polygons(map_polygons, "LandUse", terrain);
+//  index_map(map_polygons, edge_index);
+//  create_vertical_walls(map_polygons, edge_index);
+//  write_3dcm_obj(output_obj, map_polygons);
   write_3dcm_cityjson(output_cityjson, map_polygons);
   
   return 0;
