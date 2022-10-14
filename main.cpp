@@ -970,7 +970,7 @@ int write_3dcm_cityjson(const char *output_3dcm, Map &map) {
   const std::chrono::time_point now{std::chrono::system_clock::now()};
   const std::chrono::year_month_day ymd{std::chrono::floor<std::chrono::days>(now)};
   cityjson["metadata"]["referenceDate"] = std::to_string(int(ymd.year())) + "-" + std::to_string(unsigned(ymd.month())) + "-" + std::to_string(unsigned(ymd.day()));
-  cityjson["metadata"]["referenceSystem"] = std::string("http://www.opengis.net/def/crs/") + map.crs_authority + "/0/" + map.crs_code;
+  cityjson["metadata"]["referenceSystem"] = std::string("https://www.opengis.net/def/crs/") + map.crs_authority + "/0/" + map.crs_code;
   
   // Vertices
   for (std::vector<Polygon>::iterator current_polygon = map.polygons.begin(); current_polygon != map.polygons.end(); ++current_polygon) {
