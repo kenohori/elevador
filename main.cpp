@@ -81,6 +81,11 @@ struct Polygon {
   Kernel::FT x_min, x_max, y_min, y_max;
 };
 
+struct Map {
+  std::vector<Polygon> polygons;
+  std::string crs_authority, crs_code;
+};
+
 void print_timer(clock_t start_time) {
   clock_t stop_time = clock();
   double seconds = (stop_time-start_time)/(double)CLOCKS_PER_SEC;
@@ -132,7 +137,7 @@ void label_polygon(Polygon &polygon) {
   }
 }
 
-int load_map(const char *input_map, std::vector<Polygon> &map_polygons) {
+int load_map(const char *input_map, Map &map) {
   
   // Prepare input map
   clock_t start_time = clock();
@@ -141,12 +146,32 @@ int load_map(const char *input_map, std::vector<Polygon> &map_polygons) {
   if (input_map_dataset == NULL) {
     std::cerr << "Error: Could not open input map." << std::endl;
     return 1;
-  }
+  } std::cout << "Input map: " << input_map << " type: " << input_map_dataset->GetDriverName() << std::endl;
+  
+  // TODO: Load metadata
+  CPLStringList metadata_domains(input_map_dataset->GetMetadataDomainList());
+  for (int current_domain = 0; current_domain < metadata_domains.Count(); ++current_domain) {
+//    std::cout << metadata_domains[current_domain] << std::endl;
+  } std::string crs_authority, crs_version, crs_code;
   
   // Load map polygons
-  std::cout << "Input map: " << input_map << " type: " << input_map_dataset->GetDriverName() << std::endl;
   for (auto &&input_layer: input_map_dataset->GetLayers()) {
     input_layer->ResetReading();
+    
+    // Try to extract CRS from this layer
+    OGRSpatialReference *spatial_reference = input_layer->GetSpatialRef();
+    if (spatial_reference != NULL) {
+//      char *srs = (char *)CPLMalloc(10000*sizeof(char));
+//      spatial_reference->exportToPrettyWkt(&srs);
+//      std::cout << srs << std::endl;
+//      CPLFree(srs);
+      const char *authority = spatial_reference->GetAuthorityName(NULL);
+      if (authority != NULL) map.crs_authority = std::string(authority);
+      const char *code = spatial_reference->GetAuthorityCode(NULL);
+      if (code != NULL) map.crs_code = std::string(code);
+//      std::cout << "Authority: " << authority << " code: " << code << std::endl;
+    }
+    
     OGRFeature *input_feature;
     while ((input_feature = input_layer->GetNextFeature()) != NULL) {
       if (!input_feature->GetGeometryRef()) continue;
@@ -187,17 +212,17 @@ int load_map(const char *input_map, std::vector<Polygon> &map_polygons) {
       if (wkbFlatten(input_feature->GetGeometryRef()->getGeometryType()) == wkbPolygon ||
           wkbFlatten(input_feature->GetGeometryRef()->getGeometryType()) == wkbTriangle) {
         OGRPolygon *input_polygon = input_feature->GetGeometryRef()->toPolygon();
-        map_polygons.emplace_back();
-        map_polygons.back().id = std::to_string(input_feature->GetFID());
-        map_polygons.back().cityjson_class = cityjson_class;
-        map_polygons.back().attributes = attributes;
+        map.polygons.emplace_back();
+        map.polygons.back().id = std::to_string(input_feature->GetFID());
+        map.polygons.back().cityjson_class = cityjson_class;
+        map.polygons.back().attributes = attributes;
         for (int current_vertex = 0; current_vertex < input_polygon->getExteriorRing()->getNumPoints(); ++current_vertex) {
-          map_polygons.back().outer_ring.points.emplace_back(input_polygon->getExteriorRing()->getX(current_vertex),
+          map.polygons.back().outer_ring.points.emplace_back(input_polygon->getExteriorRing()->getX(current_vertex),
                                                              input_polygon->getExteriorRing()->getY(current_vertex));
         } for (int current_inner_ring = 0; current_inner_ring < input_polygon->getNumInteriorRings(); ++current_inner_ring) {
-          map_polygons.back().inner_rings.emplace_back();
+          map.polygons.back().inner_rings.emplace_back();
           for (int current_vertex = 0; current_vertex < input_polygon->getInteriorRing(current_inner_ring)->getNumPoints(); ++current_vertex) {
-            map_polygons.back().inner_rings.back().points.emplace_back(input_polygon->getInteriorRing(current_inner_ring)->getX(current_vertex),
+            map.polygons.back().inner_rings.back().points.emplace_back(input_polygon->getInteriorRing(current_inner_ring)->getX(current_vertex),
                                                                        input_polygon->getInteriorRing(current_inner_ring)->getY(current_vertex));
           }
         }
@@ -207,17 +232,17 @@ int load_map(const char *input_map, std::vector<Polygon> &map_polygons) {
         OGRMultiPolygon *input_multipolygon = input_feature->GetGeometryRef()->toMultiPolygon();
         for (int current_polygon = 0; current_polygon < input_multipolygon->getNumGeometries(); ++current_polygon) {
           OGRPolygon *input_polygon = input_multipolygon->getGeometryRef(current_polygon);
-          map_polygons.emplace_back();
-          map_polygons.back().id = std::to_string(input_feature->GetFID()) + "-" + std::to_string(current_polygon);
-          map_polygons.back().cityjson_class = cityjson_class;
-          map_polygons.back().attributes = attributes;
+          map.polygons.emplace_back();
+          map.polygons.back().id = std::to_string(input_feature->GetFID()) + "-" + std::to_string(current_polygon);
+          map.polygons.back().cityjson_class = cityjson_class;
+          map.polygons.back().attributes = attributes;
           for (int current_vertex = 0; current_vertex < input_polygon->getExteriorRing()->getNumPoints(); ++current_vertex) {
-            map_polygons.back().outer_ring.points.emplace_back(input_polygon->getExteriorRing()->getX(current_vertex),
+            map.polygons.back().outer_ring.points.emplace_back(input_polygon->getExteriorRing()->getX(current_vertex),
                                                                input_polygon->getExteriorRing()->getY(current_vertex));
           } for (int current_inner_ring = 0; current_inner_ring < input_polygon->getNumInteriorRings(); ++current_inner_ring) {
-            map_polygons.back().inner_rings.emplace_back();
+            map.polygons.back().inner_rings.emplace_back();
             for (int current_vertex = 0; current_vertex < input_polygon->getInteriorRing(current_inner_ring)->getNumPoints(); ++current_vertex) {
-              map_polygons.back().inner_rings.back().points.emplace_back(input_polygon->getInteriorRing(current_inner_ring)->getX(current_vertex),
+              map.polygons.back().inner_rings.back().points.emplace_back(input_polygon->getInteriorRing(current_inner_ring)->getX(current_vertex),
                                                                          input_polygon->getInteriorRing(current_inner_ring)->getY(current_vertex));
             }
           }
@@ -230,19 +255,19 @@ int load_map(const char *input_map, std::vector<Polygon> &map_polygons) {
     }
     
   } GDALClose(input_map_dataset);
-  std::cout << "Loaded " << map_polygons.size() << " polygons in ";
+  std::cout << "Loaded " << map.polygons.size() << " polygons in ";
   print_timer(start_time);
   std::cout << " using ";
   print_memory_usage();
   return 0;
 }
 
-int triangulate_polygons(std::vector<Polygon> &map_polygons) {
+int triangulate_polygons(Map &map) {
   
   // Basic polygon repair (pre-requisite for triangulation)
   clock_t start_time = clock();
-  std::vector<Polygon>::iterator current_polygon = map_polygons.begin();
-  while (current_polygon != map_polygons.end()) {
+  std::vector<Polygon>::iterator current_polygon = map.polygons.begin();
+  while (current_polygon != map.polygons.end()) {
     // Close polygons and rings
     if (current_polygon->outer_ring.points.back() != current_polygon->outer_ring.points.front()) {
       std::cout << "Warning: Last point != first. Adding it again at the end..." << std::endl;
@@ -259,7 +284,7 @@ int triangulate_polygons(std::vector<Polygon> &map_polygons) {
       std::cout << "Deleting polygon with < 3 vertices..." << std::endl;
       auto polygon_to_erase = current_polygon;
       ++current_polygon;
-      map_polygons.erase(polygon_to_erase);
+      map.polygons.erase(polygon_to_erase);
       continue;
     } auto current_ring = current_polygon->inner_rings.begin();
     while (current_ring != current_polygon->inner_rings.end()) {
@@ -276,8 +301,8 @@ int triangulate_polygons(std::vector<Polygon> &map_polygons) {
   }
   
   // Triangulate polygons
-  current_polygon = map_polygons.begin();
-  while (current_polygon != map_polygons.end()) {
+  current_polygon = map.polygons.begin();
+  while (current_polygon != map.polygons.end()) {
       
     // Insert the edges of the polygon as constraints
     std::vector<Kernel::Point_2>::const_iterator current_point = current_polygon->outer_ring.points.begin();
@@ -302,7 +327,7 @@ int triangulate_polygons(std::vector<Polygon> &map_polygons) {
       std::cout << "Deleting degenerate polygon (no triangles after insertion of constraints)..." << std::endl;
       auto polygon_to_erase = current_polygon;
       ++current_polygon;
-      map_polygons.erase(polygon_to_erase);
+      map.polygons.erase(polygon_to_erase);
       continue;
     }
     
@@ -317,7 +342,7 @@ int triangulate_polygons(std::vector<Polygon> &map_polygons) {
       std::cout << "Deleting degenerate polygon (no interior triangles)..." << std::endl;
       auto polygon_to_erase = current_polygon;
       ++current_polygon;
-      map_polygons.erase(polygon_to_erase);
+      map.polygons.erase(polygon_to_erase);
       continue;
     }
     
@@ -325,7 +350,7 @@ int triangulate_polygons(std::vector<Polygon> &map_polygons) {
   }
   
   // Compute bounds of repaired polygons
-  for (auto &polygon: map_polygons) {
+  for (auto &polygon: map.polygons) {
     bool first_boundary_point = true;
     for (auto current_vertex: polygon.triangulation.finite_vertex_handles()) {
       bool incident_to_interior = false;
@@ -354,18 +379,18 @@ int triangulate_polygons(std::vector<Polygon> &map_polygons) {
     }
   }
   
-  std::cout << "Repaired and triangulated " << map_polygons.size() << " polygons in ";
+  std::cout << "Repaired and triangulated " << map.polygons.size() << " polygons in ";
   print_timer(start_time);
   std::cout << " using ";
   print_memory_usage();
   return 0;
 }
 
-int index_map(std::vector<Polygon> &map_polygons, Edge_index &edges_index) {
+int index_map(Map &map, Edge_index &edges_index) {
   clock_t start_time = clock();
   
   // Index edges
-  for (std::vector<Polygon>::iterator current_polygon = map_polygons.begin(); current_polygon != map_polygons.end(); ++current_polygon) {
+  for (std::vector<Polygon>::iterator current_polygon = map.polygons.begin(); current_polygon != map.polygons.end(); ++current_polygon) {
     for (auto const &face: current_polygon->triangulation.finite_face_handles()) {
       if (face->info().interior) {
         for (int opposite_vertex = 0; opposite_vertex < 3; ++opposite_vertex) {
@@ -385,18 +410,18 @@ int index_map(std::vector<Polygon> &map_polygons, Edge_index &edges_index) {
 //  edges_index.print_info();
   
   // Print extent
-  Kernel::FT x_min = map_polygons.front().x_min;
-  Kernel::FT x_max = map_polygons.front().x_max;
-  Kernel::FT y_min = map_polygons.front().y_min;
-  Kernel::FT y_max = map_polygons.front().y_max;
-  for (auto const &polygon: map_polygons) {
+  Kernel::FT x_min = map.polygons.front().x_min;
+  Kernel::FT x_max = map.polygons.front().x_max;
+  Kernel::FT y_min = map.polygons.front().y_min;
+  Kernel::FT y_max = map.polygons.front().y_max;
+  for (auto const &polygon: map.polygons) {
     if (polygon.x_min < x_min) x_min = polygon.x_min;
     if (polygon.x_max > x_max) x_max = polygon.x_max;
     if (polygon.y_min < y_min) y_min = polygon.y_min;
     if (polygon.y_max > y_max) y_max = polygon.y_max;
   } // std::cout << "Map extent: X = [" << x_min << ", " << x_max << "] Y = [" << y_min << ", " << y_max << "]" << std::endl;
   
-  std::cout << "Indexed " << edges_index.size() << " half-edges edges of " << map_polygons.size() << " polygons in ";
+  std::cout << "Indexed " << edges_index.size() << " half-edges edges of " << map.polygons.size() << " polygons in ";
   print_timer(start_time);
   std::cout << " using ";
   print_memory_usage();
@@ -470,12 +495,12 @@ int index_point_cloud(Point_cloud &point_cloud, Point_index &index) {
   return 0;
 }
 
-int create_terrain_tin(std::vector<Polygon> &map_polygons, Point_cloud &point_cloud, Point_index &index, Triangulation &terrain) {
+int create_terrain_tin(Map &map, Point_cloud &point_cloud, Point_index &index, Triangulation &terrain) {
   clock_t start_time = clock();
   
   // Remove points from undesirable classes
   Point_cloud terrain_point_cloud = point_cloud;
-  for (auto &polygon: map_polygons) {
+  for (auto &polygon: map.polygons) {
     if (polygon.cityjson_class == "Building" ||
         polygon.cityjson_class == "WaterBody") {
       std::vector<Point_index *> intersected_nodes;
@@ -566,10 +591,10 @@ int create_terrain_tin(std::vector<Polygon> &map_polygons, Point_cloud &point_cl
   return 0;
 }
 
-int lift_flat_polygons(std::vector<Polygon> &map_polygons, const char *cityjson_class, Point_cloud &point_cloud, Point_index &index, Kernel::FT ratio_to_use) {
+int lift_flat_polygons(Map &map, const char *cityjson_class, Point_cloud &point_cloud, Point_index &index, Kernel::FT ratio_to_use) {
   clock_t start_time = clock();
   std::size_t n_polygons = 0;
-  for (auto &polygon: map_polygons) {
+  for (auto &polygon: map.polygons) {
     if (polygon.cityjson_class == cityjson_class) {
       
       // Find index nodes overlapping the polygon bbox
@@ -620,10 +645,10 @@ int lift_flat_polygons(std::vector<Polygon> &map_polygons, const char *cityjson_
   return 0;
 }
 
-int lift_polygon_vertices(std::vector<Polygon> &map_polygons, const char *cityjson_class, Triangulation &terrain) {
+int lift_polygon_vertices(Map &map, const char *cityjson_class, Triangulation &terrain) {
   clock_t start_time = clock();
   std::size_t n_vertices = 0, n_polygons = 0;
-  for (auto &polygon: map_polygons) {
+  for (auto &polygon: map.polygons) {
     if (polygon.cityjson_class == cityjson_class) {
       for (Triangulation::Finite_vertices_iterator current_vertex = polygon.triangulation.finite_vertices_begin();
            current_vertex != polygon.triangulation.finite_vertices_end();
@@ -652,10 +677,10 @@ int lift_polygon_vertices(std::vector<Polygon> &map_polygons, const char *cityjs
   return 0;
 }
 
-int lift_polygons(std::vector<Polygon> &map_polygons, const char *cityjson_class, Triangulation &terrain) {
+int lift_polygons(Map &map, const char *cityjson_class, Triangulation &terrain) {
   clock_t start_time = clock();
   std::size_t n_polygons = 0;
-  for (auto &polygon: map_polygons) {
+  for (auto &polygon: map.polygons) {
     if (polygon.cityjson_class == cityjson_class) {
       
       // Lift polygon vertices
@@ -706,11 +731,11 @@ int lift_polygons(std::vector<Polygon> &map_polygons, const char *cityjson_class
   return 0;
 }
 
-int create_vertical_walls(std::vector<Polygon> &map_polygons, Edge_index &edge_index) {
+int create_vertical_walls(Map &map, Edge_index &edge_index) {
   clock_t start_time = clock();
   
   // For every border edge in map polygon
-  for (std::vector<Polygon>::iterator current_polygon = map_polygons.begin(); current_polygon != map_polygons.end(); ++current_polygon) {
+  for (std::vector<Polygon>::iterator current_polygon = map.polygons.begin(); current_polygon != map.polygons.end(); ++current_polygon) {
     for (auto const &face: current_polygon->triangulation.finite_face_handles()) {
       if (face->info().interior) {
         for (int opposite_vertex = 0; opposite_vertex < 3; ++opposite_vertex) {
@@ -819,7 +844,7 @@ int create_vertical_walls(std::vector<Polygon> &map_polygons, Edge_index &edge_i
   return 0;
 }
 
-int write_3dcm_obj(const char *output_3dcm, std::vector<Polygon> &map_polygons) {
+int write_3dcm_obj(const char *output_3dcm, Map &map) {
   clock_t start_time = clock();
   
   const int decimal_digits = 2;
@@ -833,7 +858,7 @@ int write_3dcm_obj(const char *output_3dcm, std::vector<Polygon> &map_polygons) 
   std::size_t num_polygons = 0;
   
   // Vertices
-  for (std::vector<Polygon>::iterator current_polygon = map_polygons.begin(); current_polygon != map_polygons.end(); ++current_polygon) {
+  for (std::vector<Polygon>::iterator current_polygon = map.polygons.begin(); current_polygon != map.polygons.end(); ++current_polygon) {
     for (Triangulation::Finite_faces_iterator current_face = current_polygon->triangulation.finite_faces_begin();
          current_face != current_polygon->triangulation.finite_faces_end();
          ++current_face) {
@@ -860,7 +885,7 @@ int write_3dcm_obj(const char *output_3dcm, std::vector<Polygon> &map_polygons) 
   }
   
   // Faces
-  for (std::vector<Polygon>::iterator current_polygon = map_polygons.begin(); current_polygon != map_polygons.end(); ++current_polygon) {
+  for (std::vector<Polygon>::iterator current_polygon = map.polygons.begin(); current_polygon != map.polygons.end(); ++current_polygon) {
     
     // Triangles in polygon triangulation
     output_stream << "o " << std::to_string(num_polygons) << "\n";
@@ -898,7 +923,7 @@ int write_3dcm_obj(const char *output_3dcm, std::vector<Polygon> &map_polygons) 
   return 0;
 }
 
-int write_3dcm_cityjson(const char *output_3dcm, std::vector<Polygon> &map_polygons) {
+int write_3dcm_cityjson(const char *output_3dcm, Map &map) {
   clock_t start_time = clock();
   
   const int decimal_digits = 2;
@@ -914,14 +939,20 @@ int write_3dcm_cityjson(const char *output_3dcm, std::vector<Polygon> &map_polyg
   std::size_t num_polygons = 0;
   
   // Compute extent
-  Kernel::FT x_min = map_polygons.front().x_min;
-  Kernel::FT y_min = map_polygons.front().y_min;
+  Kernel::FT x_min = map.polygons.front().x_min;
+  Kernel::FT x_max = map.polygons.front().x_max;
+  Kernel::FT y_min = map.polygons.front().y_min;
+  Kernel::FT y_max = map.polygons.front().y_max;
   Kernel::FT z_min = 10000.0;
-  for (std::vector<Polygon>::iterator current_polygon = map_polygons.begin(); current_polygon != map_polygons.end(); ++current_polygon) {
+  Kernel::FT z_max = -1000.0;
+  for (std::vector<Polygon>::iterator current_polygon = map.polygons.begin(); current_polygon != map.polygons.end(); ++current_polygon) {
     for (auto const &current_vertex: current_polygon->triangulation.finite_vertex_handles()) {
       if (current_vertex->point().x() < x_min) x_min = current_vertex->point().x();
+      if (current_vertex->point().x() > x_max) x_max = current_vertex->point().x();
       if (current_vertex->point().y() < y_min) y_min = current_vertex->point().y();
+      if (current_vertex->point().y() > y_max) y_max = current_vertex->point().y();
       if (current_vertex->info().z < z_min) z_min = current_vertex->info().z;
+      if (current_vertex->info().z > z_max) z_max = current_vertex->info().z;
     }
   }
   
@@ -934,9 +965,15 @@ int write_3dcm_cityjson(const char *output_3dcm, std::vector<Polygon> &map_polyg
   cityjson["transform"]["translate"] = {x_min, y_min, z_min};
   cityjson["CityObjects"] = nlohmann::json::object();
   cityjson["vertices"] = nlohmann::json::array();
+  cityjson["metadata"] = nlohmann::json::object();
+  cityjson["metadata"]["geographicalExtent"] = {x_min, y_min, z_min, x_max, y_max, z_max};
+  const std::chrono::time_point now{std::chrono::system_clock::now()};
+  const std::chrono::year_month_day ymd{std::chrono::floor<std::chrono::days>(now)};
+  cityjson["metadata"]["referenceDate"] = std::to_string(int(ymd.year())) + "-" + std::to_string(unsigned(ymd.month())) + "-" + std::to_string(unsigned(ymd.day()));
+  cityjson["metadata"]["referenceSystem"] = std::string("http://www.opengis.net/def/crs/") + map.crs_authority + "/0/" + map.crs_code;
   
   // Vertices
-  for (std::vector<Polygon>::iterator current_polygon = map_polygons.begin(); current_polygon != map_polygons.end(); ++current_polygon) {
+  for (std::vector<Polygon>::iterator current_polygon = map.polygons.begin(); current_polygon != map.polygons.end(); ++current_polygon) {
     for (Triangulation::Finite_faces_iterator current_face = current_polygon->triangulation.finite_faces_begin();
          current_face != current_polygon->triangulation.finite_faces_end();
          ++current_face) {
@@ -963,7 +1000,7 @@ int write_3dcm_cityjson(const char *output_3dcm, std::vector<Polygon> &map_polyg
   }
   
   // City objects
-  for (std::vector<Polygon>::iterator current_polygon = map_polygons.begin(); current_polygon != map_polygons.end(); ++current_polygon) {
+  for (std::vector<Polygon>::iterator current_polygon = map.polygons.begin(); current_polygon != map.polygons.end(); ++current_polygon) {
     
     cityjson["CityObjects"][current_polygon->id] = nlohmann::json::object();
     cityjson["CityObjects"][current_polygon->id]["type"] = current_polygon->cityjson_class;
@@ -1041,15 +1078,19 @@ int write_terrain_obj(const char *output_terrain, Triangulation &terrain) {
   return 0;
 }
 
+int compute_height_stats() {
+  return 0;
+}
+
 int main(int argc, const char * argv[]) {
   
-  const char *input_map = "/Users/ken/Library/Mobile Documents/com~apple~CloudDocs/Teaching/volta/data/vector/osmm.gpkg";
+  const char *input_map = "/Users/ken/Library/Mobile Documents/com~apple~CloudDocs/Teaching/volta/data/vector/osmmh.gpkg";
   const char *input_point_cloud = "/Users/ken/Library/Mobile Documents/com~apple~CloudDocs/Teaching/volta/data/point cloud/Exeter_VOLTAtest.laz";
   const char *output_terrain = "/Users/ken/Downloads/terrain.obj";
   const char *output_obj = "/Users/ken/Downloads/exeter.obj";
   const char *output_cityjson = "/Users/ken/Downloads/exeter.json";
   
-  std::vector<Polygon> map_polygons;
+  Map map;
   Edge_index edge_index;
   Point_cloud point_cloud;
   Point_index point_cloud_index;
@@ -1059,23 +1100,23 @@ int main(int argc, const char * argv[]) {
   std::cout << std::fixed;
   std::cout << std::setprecision(2);
   
-  load_map(input_map, map_polygons);
-  triangulate_polygons(map_polygons);
+  load_map(input_map, map);
+  triangulate_polygons(map);
 //  load_point_cloud(input_point_cloud, point_cloud);
 //  index_point_cloud(point_cloud, point_cloud_index);
-//  create_terrain_tin(map_polygons, point_cloud, point_cloud_index, terrain);
+//  create_terrain_tin(map, point_cloud, point_cloud_index, terrain);
 //  write_terrain_obj(output_terrain, terrain);
-//  lift_flat_polygons(map_polygons, "Building", point_cloud, point_cloud_index, 0.7);
-//  lift_flat_polygons(map_polygons, "WaterBody", point_cloud, point_cloud_index, 0.1);
-//  lift_polygon_vertices(map_polygons, "Road", terrain);
-//  lift_polygon_vertices(map_polygons, "Railway", terrain);
-//  lift_polygon_vertices(map_polygons, "Bridge", terrain);
-//  lift_polygons(map_polygons, "PlantCover", terrain);
-//  lift_polygons(map_polygons, "LandUse", terrain);
-//  index_map(map_polygons, edge_index);
-//  create_vertical_walls(map_polygons, edge_index);
-//  write_3dcm_obj(output_obj, map_polygons);
-  write_3dcm_cityjson(output_cityjson, map_polygons);
+//  lift_flat_polygons(map, "Building", point_cloud, point_cloud_index, 0.9);
+//  lift_flat_polygons(map, "WaterBody", point_cloud, point_cloud_index, 0.1);
+//  lift_polygon_vertices(map, "Road", terrain);
+//  lift_polygon_vertices(map, "Railway", terrain);
+//  lift_polygon_vertices(map, "Bridge", terrain);
+//  lift_polygons(map, "PlantCover", terrain);
+//  lift_polygons(map, "LandUse", terrain);
+//  index_map(map, edge_index);
+//  create_vertical_walls(map, edge_index);
+//  write_3dcm_obj(output_obj, map);
+  write_3dcm_cityjson(output_cityjson, map);
   
   return 0;
 }
