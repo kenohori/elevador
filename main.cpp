@@ -1195,11 +1195,18 @@ int compute_height_stats(Map &map, Point_cloud &point_cloud, Point_index &index,
 
 int main(int argc, const char * argv[]) {
   
-  const char *input_map = "/Users/ken/Library/Mobile Documents/com~apple~CloudDocs/Teaching/volta/data/vector/osmmh.gpkg";
-  const char *input_point_cloud = "/Users/ken/Library/Mobile Documents/com~apple~CloudDocs/Teaching/volta/data/point cloud/Exeter_VOLTAtest.laz";
-  const char *output_terrain = "/Users/ken/Downloads/terrain.obj";
-  const char *output_obj = "/Users/ken/Downloads/exeter.obj";
-  const char *output_cityjson = "/Users/ken/Downloads/exeter.json";
+  if (argc != 2) {
+    std::cerr << "usage: elevador input_json_file" << std::endl;
+    std::cerr << "for an example, see https://github.com/kenohori/elevador/blob/main/osmm.json" << std::endl;
+    return 1;
+  } std::ifstream input_stream(argv[1]);
+  nlohmann::json input_params = nlohmann::json::parse(input_stream);
+  
+  std::string input_map = input_params["input_map"].get<std::string>();
+  std::string input_point_cloud = input_params["input_point_cloud"].get<std::string>();
+  std::string output_terrain = input_params["output_terrain"].get<std::string>();
+  std::string output_obj = input_params["output_obj"].get<std::string>();
+  std::string output_cityjson = input_params["output_cityjson"].get<std::string>();
   
   Map map;
   Edge_index edge_index;
@@ -1211,24 +1218,32 @@ int main(int argc, const char * argv[]) {
   std::cout << std::fixed;
   std::cout << std::setprecision(2);
   
-  load_map(input_map, map);
+  load_map(input_map.c_str(), map);
   triangulate_polygons(map);
-  load_point_cloud(input_point_cloud, point_cloud);
+  load_point_cloud(input_point_cloud.c_str(), point_cloud);
   index_point_cloud(point_cloud, point_cloud_index);
   create_terrain_tin(map, point_cloud, point_cloud_index, terrain);
-  write_terrain_obj(output_terrain, terrain);
-  lift_flat_polygons(map, "Building", point_cloud, point_cloud_index, 0.7);
-  compute_height_stats(map, point_cloud, point_cloud_index, terrain);
-  lift_flat_polygons(map, "WaterBody", point_cloud, point_cloud_index, 0.05);
-  lift_polygon_vertices(map, "Road", terrain);
-  lift_polygon_vertices(map, "Railway", terrain);
-  lift_polygon_vertices(map, "Bridge", terrain);
-  lift_polygons(map, "PlantCover", terrain);
-  lift_polygons(map, "LandUse", terrain);
+  write_terrain_obj(output_terrain.c_str(), terrain);
+  
+  for (auto &operation: input_params["operations"]) {
+    std::string operation_type = operation["operation"].get<std::string>();
+    if (operation_type == "lift_flat_polygons") {
+      lift_flat_polygons(map, operation["cityjsontype"].get<std::string>().c_str(), point_cloud, point_cloud_index, operation["ratio"].get<double>());
+    } else if (operation_type == "lift_polygon_vertices") {
+      lift_polygon_vertices(map, operation["cityjsontype"].get<std::string>().c_str(), terrain);
+    } else if (operation_type == "lift_polygons") {
+      lift_polygons(map, operation["cityjsontype"].get<std::string>().c_str(), terrain);
+    } else {
+      std::cerr << "Unknown operation: " << operation_type << std::endl;
+    }
+  }
+  
+//  compute_height_stats(map, point_cloud, point_cloud_index, terrain);
+
   index_map(map, edge_index);
   create_vertical_walls(map, edge_index);
-  write_3dcm_obj(output_obj, map);
-  write_3dcm_cityjson(output_cityjson, map);
+  write_3dcm_obj(output_obj.c_str(), map);
+  write_3dcm_cityjson(output_cityjson.c_str(), map);
   
   return 0;
 }
