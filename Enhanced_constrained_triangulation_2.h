@@ -1,7 +1,7 @@
 // Enhanced_constrained_triangulation
 //
 // Copyright © 2016-2022,
-// Ken Arroyo Ohori    k.ohori@tudelft.nl
+// Ken Arroyo Ohori    ken@ken.mx
 // All rights reserved.
 //
 // This program is free software: you can redistribute it and/or modify
