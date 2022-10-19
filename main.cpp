@@ -199,8 +199,8 @@ int load_map(const char *input_map, Map &map) {
       std::unordered_map<std::string, std::string> attributes;
       
       for (int current_field = 0; current_field < input_feature->GetFieldCount(); ++current_field) {
-        if (strcmp(input_feature->GetFieldDefnRef(current_field)->GetNameRef(), "citygmlclass") == 0) {
-          cityjson_class = input_feature->GetFieldAsString("citygmlclass");
+        if (strcmp(input_feature->GetFieldDefnRef(current_field)->GetNameRef(), "cityjsonclass") == 0) {
+          cityjson_class = input_feature->GetFieldAsString("cityjsonclass");
           continue;
         } if (input_feature->IsFieldNull(current_field)) continue;
         switch (input_feature->GetFieldDefnRef(current_field)->GetType()) {
