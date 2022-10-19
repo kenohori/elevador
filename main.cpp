@@ -733,6 +733,10 @@ int create_vertical_walls(Map &map, Edge_index &edge_index) {
             Triangulation::Vertex_handle destination = face->vertex(face->cw(opposite_vertex));
             CGAL_assertion(CGAL::orientation(origin->point(), destination->point(), face->vertex(opposite_vertex)->point()) == CGAL::COUNTERCLOCKWISE);
             
+            // Edge isn't in index because it has been modified to process a bowtie (skip)
+            if (edge_index.edges.count(origin->point()) == 0 || edge_index.edges[origin->point()].count(destination->point()) == 0) continue;
+            if (edge_index.edges.count(destination->point()) == 0 || edge_index.edges[destination->point()].count(origin->point()) == 0) continue;
+            
             // Get elevations at origin and destination
             std::set<Kernel::FT> origin_elevations, destination_elevations;
             for (auto const &same_side_face: edge_index.edges[origin->point()][destination->point()].adjacent_faces) {
@@ -783,24 +787,56 @@ int create_vertical_walls(Map &map, Edge_index &edge_index) {
                 Kernel::Segment_3 bottom_to_top(origin_bottom, destination_top);
                 auto result = CGAL::intersection(top_to_bottom, bottom_to_top);
                 if (result) {
-//                  Kernel::Point_3 *intersection_point = boost::get<Kernel::Point_3>(&*result);
-//                  Kernel::Point_2 intersection_point_2d(intersection_point->x(), intersection_point->y());
+                  Kernel::Point_3 *intersection_point = boost::get<Kernel::Point_3>(&*result);
+                  Kernel::Point_2 intersection_point_2d(intersection_point->x(), intersection_point->y());
 //                  std::cout << "\tintersection at (" << intersection_point_2d << ")" << std::endl;
-//                  for (auto const &same_side_face: edge_index.edges[origin->point()][destination->point()].adjacent_faces) {
-//                    same_side_face.polygon->triangulation.insert_in_edge(intersection_point_2d, same_side_face.face, same_side_face.opposite_vertex);
+                  for (auto const &same_side_face: edge_index.edges[origin->point()][destination->point()].adjacent_faces) {
+                    Triangulation::Vertex_handle origin_same_side_face = same_side_face.face->vertex(same_side_face.face->ccw(same_side_face.opposite_vertex));
+                    Triangulation::Vertex_handle destination_same_side_face = same_side_face.face->vertex(same_side_face.face->cw(same_side_face.opposite_vertex));
+                    Triangulation::Vertex_handle inserted_vertex = same_side_face.polygon->triangulation.insert_in_edge(intersection_point_2d, same_side_face.face, same_side_face.opposite_vertex);
+                    Triangulation::Face_handle origin_middle_face;
+                    int origin_middle_opposite_vertex;
+                    CGAL_assertion(same_side_face.polygon->triangulation.is_edge(origin_same_side_face, inserted_vertex, origin_middle_face, origin_middle_opposite_vertex));
+                    origin_middle_face->info().interior = true;
+                    origin_middle_face->set_constraint(origin_middle_opposite_vertex, true);
+                    CGAL_assertion(same_side_face.polygon->triangulation.is_constrained(std::pair<Triangulation::Face_handle, int>(origin_middle_face, origin_middle_opposite_vertex)));
+                    Triangulation::Face_handle middle_destination_face;
+                    int middle_destination_opposite_vertex;
+                    CGAL_assertion(same_side_face.polygon->triangulation.is_edge(inserted_vertex, destination_same_side_face, middle_destination_face, middle_destination_opposite_vertex));
+                    middle_destination_face->info().interior = true;
+                    middle_destination_face->set_constraint(middle_destination_opposite_vertex, true);
+                    CGAL_assertion(same_side_face.polygon->triangulation.is_constrained(std::pair<Triangulation::Face_handle, int>(middle_destination_face, middle_destination_opposite_vertex)));
+//                    std::cout << "\tseems okay!" << std::endl;
 //                    label_polygon(*same_side_face.polygon);
 //                    edge_index.erase(same_side_face.polygon);
 //                    edge_index.insert(same_side_face.polygon);
-////                    edge_index.check(map.polygons);
-//                  } for (auto const &opposite_side_face: edge_index.edges[destination->point()][origin->point()].adjacent_faces) {
-//                    opposite_side_face.polygon->triangulation.insert_in_edge(intersection_point_2d, opposite_side_face.face, opposite_side_face.opposite_vertex);
+//                    edge_index.check(map.polygons);
+                  } edge_index.edges[origin->point()].erase(destination->point());
+                  for (auto const &opposite_side_face: edge_index.edges[destination->point()][origin->point()].adjacent_faces) {
+                    Triangulation::Vertex_handle origin_opposite_side_face = opposite_side_face.face->vertex(opposite_side_face.face->ccw(opposite_side_face.opposite_vertex));
+                    Triangulation::Vertex_handle destination_opposite_side_face = opposite_side_face.face->vertex(opposite_side_face.face->cw(opposite_side_face.opposite_vertex));
+                    Triangulation::Vertex_handle inserted_vertex = opposite_side_face.polygon->triangulation.insert_in_edge(intersection_point_2d, opposite_side_face.face, opposite_side_face.opposite_vertex);
+                    Triangulation::Face_handle origin_middle_face;
+                    int origin_middle_opposite_vertex;
+                    CGAL_assertion(opposite_side_face.polygon->triangulation.is_edge(origin_opposite_side_face, inserted_vertex, origin_middle_face, origin_middle_opposite_vertex));
+                    origin_middle_face->info().interior = true;
+                    origin_middle_face->set_constraint(origin_middle_opposite_vertex, true);
+                    CGAL_assertion(opposite_side_face.polygon->triangulation.is_constrained(std::pair<Triangulation::Face_handle, int>(origin_middle_face, origin_middle_opposite_vertex)));
+                    Triangulation::Face_handle middle_destination_face;
+                    int middle_destination_opposite_vertex;
+                    CGAL_assertion(opposite_side_face.polygon->triangulation.is_edge(inserted_vertex, destination_opposite_side_face, middle_destination_face, middle_destination_opposite_vertex));
+                    middle_destination_face->info().interior = true;
+                    middle_destination_face->set_constraint(middle_destination_opposite_vertex, true);
+                    CGAL_assertion(opposite_side_face.polygon->triangulation.is_constrained(std::pair<Triangulation::Face_handle, int>(middle_destination_face, middle_destination_opposite_vertex)));
+//                    std::cout << "\tseems okay!" << std::endl;
 //                    label_polygon(*opposite_side_face.polygon);
 //                    edge_index.erase(opposite_side_face.polygon);
 //                    edge_index.insert(opposite_side_face.polygon);
 //                    edge_index.check(map.polygons);
-//                  } modified_triangulation = true;
-//                  current_polygon->extra_triangles.push_back(Triangle(origin_bottom, origin_top, *intersection_point));
-//                  current_polygon->extra_triangles.push_back(Triangle(destination_bottom, destination_top, *intersection_point));
+                  } edge_index.edges[destination->point()].erase(origin->point());
+                  modified_triangulation = true;
+                  current_polygon->extra_triangles.push_back(Triangle(origin_bottom, origin_top, *intersection_point));
+                  current_polygon->extra_triangles.push_back(Triangle(destination_bottom, destination_top, *intersection_point));
                 } else {
                   std::cout << "Error: bowtie intersection point not found" << std::endl;
                 }
