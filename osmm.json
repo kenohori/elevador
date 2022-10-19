@@ -1,0 +1,39 @@
+{
+  "input_map": "/Users/ken/Library/Mobile Documents/com~apple~CloudDocs/Teaching/volta/data/vector/osmmh.gpkg",
+  "input_point_cloud": "/Users/ken/Library/Mobile Documents/com~apple~CloudDocs/Teaching/volta/data/point cloud/Exeter_VOLTAtest.laz",
+  "output_terrain": "/Users/ken/Downloads/terrain.obj",
+  "output_obj": "output_obj",
+  "output_cityjson": "/Users/ken/Downloads/exeter.json",
+  "operations": [
+    {
+      "operation": "lift_flat_polygons",
+      "cityjsontype": "Building",
+      "ratio": 0.7
+    },
+    {
+      "operation": "lift_flat_polygons",
+      "cityjsontype": "WaterBody",
+      "ratio": 0.05
+    },
+    {
+      "operation": "lift_polygon_vertices",
+      "cityjsontype": "Road"
+    },
+    {
+      "operation": "lift_polygon_vertices",
+      "cityjsontype": "Railway"
+    },
+    {
+      "operation": "lift_polygon_vertices",
+      "cityjsontype": "Bridge"
+    },
+    {
+      "operation": "lift_polygons",
+      "cityjsontype": "PlantCover"
+    },
+    {
+      "operation": "lift_polygons",
+      "cityjsontype": "LandUse"
+    }
+  ]
+}
