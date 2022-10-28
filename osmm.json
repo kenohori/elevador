@@ -2,8 +2,9 @@
   "input_map": "/Users/ken/Library/Mobile Documents/com~apple~CloudDocs/Teaching/volta/data/vector/osmmh.gpkg",
   "input_point_cloud": "/Users/ken/Library/Mobile Documents/com~apple~CloudDocs/Teaching/volta/data/point cloud/Exeter_VOLTAtest.laz",
   "output_terrain": "/Users/ken/Downloads/terrain.obj",
-  "output_obj": "output_obj",
+  "output_obj": "/Users/ken/Downloads/exeter.obj",
   "output_cityjson": "/Users/ken/Downloads/exeter.json",
+  "class_attribute": "class",
   "operations": [
     {
       "operation": "lift_flat_polygons",
