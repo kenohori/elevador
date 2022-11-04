@@ -46,7 +46,12 @@ int main(int argc, const char * argv[]) {
     elevador.index_point_cloud();
   }
   
-  elevador.create_terrain_tin();
+  std::set<std::string> ignore_classes;
+  if (input_params.count("terrain_ignore_classes") == 1) {
+    for (auto const &ignore_class: input_params["terrain_ignore_classes"]) {
+      ignore_classes.insert(ignore_class.get<std::string>());
+    }
+  } elevador.create_terrain_tin(ignore_classes);
   
   if (input_params.count("output_terrain") == 1) {
     std::string output_terrain = input_params["output_terrain"].get<std::string>();
@@ -56,11 +61,11 @@ int main(int argc, const char * argv[]) {
   for (auto &operation: input_params["operations"]) {
     std::string operation_type = operation["operation"].get<std::string>();
     if (operation_type == "lift_flat_polygons") {
-      elevador.lift_flat_polygons(operation["cityjsontype"].get<std::string>().c_str(), operation["ratio"].get<double>());
+      elevador.lift_flat_polygons(operation[class_attribute].get<std::string>().c_str(), operation["ratio"].get<double>());
     } else if (operation_type == "lift_polygon_vertices") {
-      elevador.lift_polygon_vertices(operation["cityjsontype"].get<std::string>().c_str());
+      elevador.lift_polygon_vertices(operation[class_attribute].get<std::string>().c_str());
     } else if (operation_type == "lift_polygons") {
-      elevador.lift_polygons(operation["cityjsontype"].get<std::string>().c_str());
+      elevador.lift_polygons(operation[class_attribute].get<std::string>().c_str());
     } else {
       std::cerr << "Unknown operation: " << operation_type << std::endl;
     }

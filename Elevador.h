@@ -494,14 +494,13 @@ public:
     return index_point_cloud(point_cloud, point_cloud_index);
   }
 
-  int create_terrain_tin() {
+  int create_terrain_tin(std::set<std::string> &ignore_classes) {
     clock_t start_time = clock();
     
     // Remove points from undesirable classes
     Point_cloud terrain_point_cloud = point_cloud;
     for (auto &polygon: map.polygons) {
-      if (polygon.semantic_class == "Building" ||
-          polygon.semantic_class == "WaterBody") {
+      if (ignore_classes.count(polygon.semantic_class) == 1) {
         std::vector<Point_index *> intersected_nodes;
         point_cloud_index.find_intersections(intersected_nodes, polygon.x_min, polygon.x_max, polygon.y_min, polygon.y_max);
         for (auto const &node: intersected_nodes) {

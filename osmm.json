@@ -5,36 +5,37 @@
   "output_obj": "/Users/ken/Downloads/exeter.obj",
   "output_cityjson": "/Users/ken/Downloads/exeter.json",
   "class_attribute": "class",
+  "terrain_ignore_classes": ["Building", "WaterBody"],
   "operations": [
     {
       "operation": "lift_flat_polygons",
-      "cityjsontype": "Building",
+      "class": "Building",
       "ratio": 0.7
     },
     {
       "operation": "lift_flat_polygons",
-      "cityjsontype": "WaterBody",
+      "class": "WaterBody",
       "ratio": 0.05
     },
     {
       "operation": "lift_polygon_vertices",
-      "cityjsontype": "Road"
+      "class": "Road"
     },
     {
       "operation": "lift_polygon_vertices",
-      "cityjsontype": "Railway"
+      "class": "Railway"
     },
     {
       "operation": "lift_polygon_vertices",
-      "cityjsontype": "Bridge"
+      "class": "Bridge"
     },
     {
       "operation": "lift_polygons",
-      "cityjsontype": "PlantCover"
+      "class": "PlantCover"
     },
     {
       "operation": "lift_polygons",
-      "cityjsontype": "LandUse"
+      "class": "LandUse"
     }
   ]
 }
